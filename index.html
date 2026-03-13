@@ -2,11 +2,15 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <title>Reino Medieval - Pixel Art Strategy</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;touch-action:none}
 body{background:#0a0a1a;overflow:hidden;font-family:monospace}
-canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges}
+canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges;touch-action:none}
 </style>
 </head>
 <body>
@@ -221,6 +225,47 @@ const keys = {};
 const mouse = {x:0,y:0,wx:0,wy:0,left:false,right:false,middle:false};
 let selBox = null;
 let uiButtons = [];
+
+// ═══════════════════════════════════════════════════════════
+// DETECÇÃO MOBILE E ESTADO TOUCH
+// ═══════════════════════════════════════════════════════════
+const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+const touch = {
+    active: false,
+    startX: 0, startY: 0,
+    lastX: 0, lastY: 0,
+    pinchDist: 0,
+    isPinching: false,
+    isPanning: false,
+    tapTimer: 0,
+    doubleTapTimer: 0,
+    longPressTimer: null,
+    isLongPress: false,
+    dragThreshold: 12,
+    moved: false
+};
+
+// Mobile UI state
+const mobileUI = {
+    showBuildPanel: false,
+    showRecruitPanel: false,
+    showArmyPanel: false,
+    showBattleButtons: false,
+    buildGhost: null,  // {type, tileX, tileY} for ghost placement
+    touchButtons: []   // touch-specific UI buttons
+};
+
+// Auto-save state
+let autoSaveTimer = 0;
+const AUTO_SAVE_INTERVAL = 180; // 3 minutes
+
+// Mobile performance limits
+const MOBILE_LIMITS = {
+    maxUnits: isMobile ? 120 : 999,
+    maxParticles: isMobile ? 30 : 100,
+    maxEnemies: isMobile ? 60 : 999,
+    aiCycleMultiplier: isMobile ? 2.0 : 1.0  // AI runs slower on mobile
+};
 
 // ═══════════════════════════════════════════════════════════
 // UTILIDADES
@@ -1868,6 +1913,8 @@ function upgradeMasonry(){
 
 function recruitUnit(type){
     if(!hasBarracks()){addMessage('[x] Construa um Quartel primeiro!');return}
+    // Mobile unit limit
+    if(gs.units.length>=MOBILE_LIMITS.maxUnits){addMessage('[x] Limite de unidades atingido! ('+MOBILE_LIMITS.maxUnits+')');return}
     let def=UDEF[type];
     if(!canAfford(def.cost)){addMessage('[x] Recursos insuficientes!');return}
     let popNeeded=def.cost.pop||0;
@@ -2185,7 +2232,8 @@ function updateTerritoryEconomy(dt){
 
 function updateKingdomAI(dt){
     gs.aiTimer+=dt;
-    if(gs.aiTimer<1.5) return;
+    let aiInterval=1.5*MOBILE_LIMITS.aiCycleMultiplier;
+    if(gs.aiTimer<aiInterval) return;
     gs.aiTimer=0;
     for(let k of gs.kingdoms){
         k.expandCd-=1.5;k.attackCd-=1.5;
@@ -2948,6 +2996,289 @@ canvas.addEventListener('wheel',(e)=>{
     updateMouseWorld();
 },{passive:false});
 
+// ═══════════════════════════════════════════════════════════
+// TOUCH EVENT HANDLERS (MOBILE)
+// ═══════════════════════════════════════════════════════════
+function getTouchDist(t1, t2) {
+    return Math.sqrt((t2.clientX - t1.clientX) ** 2 + (t2.clientY - t1.clientY) ** 2);
+}
+
+function touchToMouse(t) {
+    mouse.x = t.clientX;
+    mouse.y = t.clientY;
+    updateMouseWorld();
+}
+
+function isClickMobileUI(mx, my) {
+    for (let b of mobileUI.touchButtons) {
+        if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) { if (b.fn) b.fn(); return true; }
+    }
+    return false;
+}
+
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    let touches = e.touches;
+
+    if (gs.phase === 'menu') { gs.phase = 'playing'; return; }
+
+    if (touches.length === 2) {
+        // Pinch start
+        touch.isPinching = true;
+        touch.isPanning = false;
+        touch.pinchDist = getTouchDist(touches[0], touches[1]);
+        if (touch.longPressTimer) { clearTimeout(touch.longPressTimer); touch.longPressTimer = null; }
+        return;
+    }
+
+    if (touches.length === 1) {
+        let t = touches[0];
+        touch.active = true;
+        touch.startX = t.clientX;
+        touch.startY = t.clientY;
+        touch.lastX = t.clientX;
+        touch.lastY = t.clientY;
+        touch.moved = false;
+        touch.isPanning = false;
+        touch.isLongPress = false;
+        touchToMouse(t);
+
+        // Long press detection (simulates right-click for move/attack)
+        touch.longPressTimer = setTimeout(() => {
+            if (!touch.moved && touch.active) {
+                touch.isLongPress = true;
+                // Trigger right-click action (move/attack)
+                if (gs.phase === 'playing' && !gs.paused) {
+                    if (gs.selectedArmies.length > 0) {
+                        let tt = worldToTerr(mouse.wx, mouse.wy);
+                        let target = { x: tt.x, y: tt.y };
+                        let to = getTerritoryCenterWorld(target.x, target.y);
+                        for (let a of gs.selectedArmies) { a.tx = to.x; a.ty = to.y; a.targetTerritory = target; }
+                        addParticle(mouse.wx, mouse.wy, '!', '#00CCFF');
+                    }
+                    if (gs.selectedUnits.length > 0) {
+                        let tgtEnemy = null;
+                        for (let en of gs.enemies) {
+                            if (!en.alive) continue;
+                            if (dist(mouse.wx, mouse.wy, en.x, en.y) < TILE) { tgtEnemy = en; break; }
+                        }
+                        for (let i = 0; i < gs.selectedUnits.length; i++) {
+                            let u = gs.selectedUnits[i];
+                            if (tgtEnemy) { u.targetEnemy = tgtEnemy; u.moveTarget = null; }
+                            else {
+                                let angle = (i / gs.selectedUnits.length) * Math.PI * 2;
+                                let spread = Math.min(gs.selectedUnits.length * 8, 50);
+                                u.moveTarget = { x: mouse.wx + Math.cos(angle) * spread, y: mouse.wy + Math.sin(angle) * spread };
+                                u.targetEnemy = null;
+                            }
+                        }
+                        addParticle(mouse.wx, mouse.wy, '!', '#00FF00');
+                    }
+                }
+            }
+        }, 500);
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    let touches = e.touches;
+
+    if (touch.isPinching && touches.length === 2) {
+        // Pinch zoom
+        let newDist = getTouchDist(touches[0], touches[1]);
+        let delta = newDist - touch.pinchDist;
+        let oldZoom = gs.zoom;
+        gs.zoom = clamp(gs.zoom + delta * 0.003, 0.5, 2.5);
+        if (gs.zoom !== oldZoom) {
+            let midX = (touches[0].clientX + touches[1].clientX) / 2;
+            let midY = (touches[0].clientY + touches[1].clientY) / 2;
+            mouse.x = midX; mouse.y = midY;
+            let oldWX = mouse.wx, oldWY = mouse.wy;
+            updateMouseWorld();
+            gs.cameraOffset.x += oldWX - (mouse.x / gs.zoom + gs.camera.x);
+            gs.cameraOffset.y += oldWY - (mouse.y / gs.zoom + gs.camera.y);
+            updateCamera();
+            updateMouseWorld();
+        }
+        touch.pinchDist = newDist;
+        return;
+    }
+
+    if (touches.length === 1) {
+        let t = touches[0];
+        let dx = t.clientX - touch.startX;
+        let dy = t.clientY - touch.startY;
+        let totalDist = Math.abs(dx) + Math.abs(dy);
+
+        if (totalDist > touch.dragThreshold) {
+            touch.moved = true;
+            if (touch.longPressTimer) { clearTimeout(touch.longPressTimer); touch.longPressTimer = null; }
+        }
+
+        if (touch.moved && !touch.isLongPress) {
+            // If no units selected and no build mode → pan camera
+            if (!gs.buildMode && !selBox && gs.selectedUnits.length === 0) {
+                touch.isPanning = true;
+                gs.cameraOffset.x -= (t.clientX - touch.lastX) / gs.zoom;
+                gs.cameraOffset.y -= (t.clientY - touch.lastY) / gs.zoom;
+                updateCamera();
+                updateMouseWorld();
+            } else if (!gs.buildMode) {
+                // Drag selection box
+                touchToMouse(t);
+                if (!selBox) selBox = { x1: mouse.wx, y1: mouse.wy, x2: mouse.wx, y2: mouse.wy };
+                else { selBox.x2 = mouse.wx; selBox.y2 = mouse.wy; }
+            } else {
+                // Build mode - update ghost position
+                touchToMouse(t);
+                if (mobileUI.buildGhost) {
+                    let tile = w2t(mouse.wx, mouse.wy);
+                    mobileUI.buildGhost.tileX = tile.x;
+                    mobileUI.buildGhost.tileY = tile.y;
+                }
+            }
+        }
+
+        touch.lastX = t.clientX;
+        touch.lastY = t.clientY;
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    if (touch.longPressTimer) { clearTimeout(touch.longPressTimer); touch.longPressTimer = null; }
+
+    if (touch.isPinching) {
+        if (e.touches.length < 2) touch.isPinching = false;
+        return;
+    }
+
+    if (!touch.active) return;
+    touch.active = false;
+
+    if (gs.phase !== 'playing' || gs.paused) return;
+    if (touch.isLongPress) { touch.isLongPress = false; return; }
+
+    touchToMouse({ clientX: touch.lastX, clientY: touch.lastY });
+
+    // Check UI buttons first
+    if (isClickUI(mouse.x, mouse.y)) return;
+    if (isClickMobileUI(mouse.x, mouse.y)) return;
+
+    if (gs.showGuide || gs.showDiplomacy) return;
+
+    if (touch.isPanning) { touch.isPanning = false; return; }
+
+    // Handle selection box end
+    if (selBox) {
+        let x1 = Math.min(selBox.x1, selBox.x2), y1 = Math.min(selBox.y1, selBox.y2);
+        let x2 = Math.max(selBox.x1, selBox.x2), y2 = Math.max(selBox.y1, selBox.y2);
+        gs.selectedUnits.forEach(u => u.selected = false); gs.selectedUnits = [];
+        gs.selectedArmies = []; gs.selectedBuildings = [];
+        if ((x2 - x1) * (y2 - y1) >= 200) {
+            for (let u of gs.units) {
+                if (!u.alive) continue;
+                if (u.x >= x1 && u.x <= x2 && u.y >= y1 && u.y <= y2) { u.selected = true; gs.selectedUnits.push(u); }
+            }
+            for (let a of gs.armies) {
+                if (a.owner !== OWNER.PLAYER) continue;
+                if (a.x >= x1 && a.x <= x2 && a.y >= y1 && a.y <= y2) gs.selectedArmies.push(a);
+            }
+        }
+        selBox = null;
+        if (gs.selectedUnits.length > 0 || gs.selectedArmies.length > 0) return;
+    }
+
+    // Ghost building placement: confirm
+    if (mobileUI.buildGhost) {
+        let type = mobileUI.buildGhost.type;
+        let def = BUILD[type];
+        let tile = w2t(mouse.wx, mouse.wy);
+        if (canBuild(tile.x, tile.y, def) && canAfford(def.cost)) {
+            spend(def.cost);
+            gs.buildings.push(new Building(tile.x, tile.y, type));
+            addMessage('[+] ' + def.name + ' construído!');
+            addParticle(mouse.wx, mouse.wy, '+', '#00FF00');
+        } else if (!canAfford(def.cost)) { addMessage('[x] Recursos insuficientes!'); }
+        else { addMessage('[x] Local inválido!'); }
+        mobileUI.buildGhost = null;
+        gs.buildMode = null;
+        return;
+    }
+
+    // Build mode: place ghost
+    if (gs.buildMode) {
+        let tile = w2t(mouse.wx, mouse.wy);
+        mobileUI.buildGhost = { type: gs.buildMode, tileX: tile.x, tileY: tile.y };
+        return;
+    }
+
+    if (!touch.moved) {
+        // Simple tap - select unit, army, or building
+        let md = TILE * 1.5, near = null;
+        for (let u of gs.units) { if (!u.alive) continue; let d = dist(mouse.wx, mouse.wy, u.x, u.y); if (d < md) { md = d; near = u; } }
+        if (near) {
+            gs.selectedUnits.forEach(u => u.selected = false);
+            near.selected = true; gs.selectedUnits = [near];
+            gs.selectedBuilding = null; gs.selectedBuildings = []; gs.showBuildingMenu = false; gs.selectedArmies = [];
+            return;
+        }
+        let nearArmy = gs.armies.find(a => a.owner === OWNER.PLAYER && dist(a.x, a.y, mouse.wx, mouse.wy) < 18);
+        if (nearArmy) { gs.selectedArmies = [nearArmy]; return; }
+
+        // Check building click
+        let clickedBuilding = null;
+        for (let b of gs.buildings) {
+            if (b.hp <= 0) continue;
+            let bx = b.x * TILE, by = b.y * TILE, bw = b.def.w * TILE, bh = b.def.h * TILE;
+            if (mouse.wx >= bx && mouse.wx < bx + bw && mouse.wy >= by && mouse.wy < by + bh) { clickedBuilding = b; break; }
+        }
+        if (clickedBuilding) {
+            gs.selectedBuilding = clickedBuilding; gs.showBuildingMenu = true;
+            gs.selectedBuildings = [clickedBuilding]; gs.selectedArmies = [];
+            gs.showBuildMenu = false; gs.showRecruitMenu = false;
+            if (clickedBuilding.type === 'BARRACKS') gs.showRecruitMenu = true;
+            return;
+        }
+
+        // Tap on empty space with units selected → move units
+        if (gs.selectedUnits.length > 0) {
+            for (let i = 0; i < gs.selectedUnits.length; i++) {
+                let u = gs.selectedUnits[i];
+                let angle = (i / gs.selectedUnits.length) * Math.PI * 2;
+                let spread = Math.min(gs.selectedUnits.length * 8, 50);
+                u.moveTarget = { x: mouse.wx + Math.cos(angle) * spread, y: mouse.wy + Math.sin(angle) * spread };
+                u.targetEnemy = null;
+            }
+            addParticle(mouse.wx, mouse.wy, '!', '#00FF00');
+            return;
+        }
+
+        // Tap on empty space with armies selected → move armies
+        if (gs.selectedArmies.length > 0) {
+            let tt = worldToTerr(mouse.wx, mouse.wy);
+            let target = { x: tt.x, y: tt.y };
+            let to = getTerritoryCenterWorld(target.x, target.y);
+            for (let a of gs.selectedArmies) { a.tx = to.x; a.ty = to.y; a.targetTerritory = target; }
+            addParticle(mouse.wx, mouse.wy, '!', '#00CCFF');
+            return;
+        }
+
+        // Deselect everything
+        gs.selectedUnits.forEach(u => u.selected = false); gs.selectedUnits = [];
+        gs.selectedBuilding = null; gs.selectedBuildings = []; gs.showBuildingMenu = false;
+        gs.selectedArmies = [];
+        mobileUI.showBuildPanel = false; mobileUI.showRecruitPanel = false; mobileUI.showArmyPanel = false;
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchcancel', (e) => {
+    touch.active = false; touch.isPinching = false; touch.isPanning = false;
+    if (touch.longPressTimer) { clearTimeout(touch.longPressTimer); touch.longPressTimer = null; }
+    selBox = null;
+}, { passive: false });
+
 function isClickUI(mx,my){
     for(let b of uiButtons){
         if(mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h){if(b.fn)b.fn();return true}
@@ -3197,79 +3528,121 @@ function renderUI(){
     ctx.beginPath();ctx.moveTo(0,barH);ctx.lineTo(W,barH);ctx.stroke();
 
     let rates=getProductionRates();
-    ctx.font='bold 13px monospace';ctx.textAlign='left';
-    let rx=14;
-    // População
-    ctx.fillStyle=gs.population>=gs.popCap?'#F66':'#8CF';
-    drawIC('pop',rx,3,16);ctx.fillText(gs.population+'/'+gs.popCap,rx+20,18);
-    ctx.font='10px monospace';ctx.fillStyle='#666';
-    ctx.fillText('Livres: '+Math.max(0,getAvailablePop()),rx+20,34);
-    rx+=120;
-    // Comida
-    ctx.font='bold 13px monospace';
-    ctx.fillStyle=gs.hunger>=2?'#F44':gs.hunger>=1?'#FA4':'#2ecc71';
-    drawIC('food',rx,3,16);ctx.fillText(Math.floor(gs.resources.food)+'',rx+20,18);
-    ctx.font='10px monospace';ctx.fillStyle=rates.food>=0?'#7B7':'#F88';
-    ctx.fillText((rates.food>=0?'+':'')+rates.food+'/min',rx+20,34);
-    rx+=105;
-    // Madeira
-    ctx.font='bold 13px monospace';ctx.fillStyle='#DEB887';
-    drawIC('wood',rx,3,16);ctx.fillText(Math.floor(gs.resources.wood)+'',rx+20,18);
-    ctx.font='10px monospace';ctx.fillStyle='#997';
-    ctx.fillText('+'+rates.wood+'/min',rx+20,34);
-    rx+=100;
-    // Pedra
-    ctx.font='bold 13px monospace';ctx.fillStyle='#B0BEC5';
-    drawIC('stone',rx,3,16);ctx.fillText(Math.floor(gs.resources.stone)+'',rx+20,18);
-    ctx.font='10px monospace';ctx.fillStyle='#8898A0';
-    ctx.fillText('+'+(rates.stone||0)+'/min',rx+20,34);
-    rx+=100;
-    // Ouro
-    ctx.font='bold 13px monospace';ctx.fillStyle='#FFD700';
-    drawIC('gold',rx,3,16);ctx.fillText(Math.floor(gs.resources.gold)+'',rx+20,18);
-    ctx.font='10px monospace';ctx.fillStyle='#BB8';
-    ctx.fillText('+'+rates.gold+'/min',rx+20,34);
-    rx+=100;
-    // Tropas
-    ctx.font='bold 13px monospace';ctx.fillStyle='#87CEEB';
-    drawIC('swords',rx,3,16);ctx.fillText(gs.units.filter(u=>u.alive).length+' tropas',rx+20,18);
-    rx+=110;
-    // Territórios
-    let pTerr=getOwnerTerritories(OWNER.PLAYER).length;
-    let aTerr=getOwnerTerritories(OWNER.ENEMY_A).length;
-    let bTerr=getOwnerTerritories(OWNER.ENEMY_B).length;
-    let vTerr=getOwnerTerritories(OWNER.VAMPIRES).length;
-    ctx.fillStyle='#9FD9FF';
-    drawIC('map',rx,3,16);ctx.fillText(pTerr+'P/'+aTerr+'B/'+bTerr+'M/'+vTerr+'V',rx+20,18);
-    ctx.font='10px monospace';ctx.fillStyle='#777';
-    let next=Math.max(0,Math.ceil(65-gs.waveTimer));
-    ctx.fillText('Onda '+gs.waveNumber+' ('+next+'s)',rx+20,34);
-    rx+=165;
-    // Dia/Noite
-    ctx.font='bold 13px monospace';
-    ctx.fillStyle=gs.isNight?'#8888CC':'#FFDD44';
-    drawIC(gs.isNight?'moon':'sun',rx,3,16);ctx.fillText(gs.isNight?'Noite':'Dia',rx+20,18);
-    ctx.font='10px monospace';ctx.fillStyle='#777';
-    ctx.fillText('[N] Diplomacia',rx+20,34);
-    rx+=115;
-    ctx.font='bold 13px monospace';ctx.fillStyle='#BBB';
-    drawIC('zoom',rx,3,16);ctx.fillText('x'+gs.zoom.toFixed(1),rx+20,18);
-    ctx.font='10px monospace';ctx.fillStyle='#777';
-    ctx.fillText('[O] Livro',rx+20,34);
-    rx+=85;
-    // Alerta de fome
-    if(gs.hunger>=1){
-        ctx.font='bold 14px monospace';
-        ctx.fillStyle=gs.hunger>=3?'#F00':gs.hunger>=2?'#F60':'#FA0';
-        let blink=Math.sin(gs.gameTime*4)>0;
-        if(gs.hunger>=2||blink){
-            let hMsg=gs.hunger>=3?'FOME EXTREMA!':gs.hunger>=2?'FOME SEVERA!':'Comida baixa!';
-            drawIC(gs.hunger>=3?'skull':'warn',rx,6,18);ctx.fillText(hMsg,rx+22,24);
+    ctx.textAlign='left';
+
+    if(isMobile){
+        // ─── Mobile Compact Resource Bar ───
+        let iconS=14,fSize=11,spacing=Math.min(W/5,80);
+        ctx.font='bold '+fSize+'px monospace';
+        let rx=6;
+        // Pop
+        ctx.fillStyle=gs.population>=gs.popCap?'#F66':'#8CF';
+        drawIC('pop',rx,4,iconS);ctx.fillText(gs.population+'/'+gs.popCap,rx+iconS+3,18);
+        ctx.font=(fSize-2)+'px monospace';ctx.fillStyle='#666';
+        ctx.fillText('L:'+Math.max(0,getAvailablePop()),rx+iconS+3,32);
+        rx+=spacing;
+        // Food
+        ctx.font='bold '+fSize+'px monospace';
+        ctx.fillStyle=gs.hunger>=2?'#F44':gs.hunger>=1?'#FA4':'#2ecc71';
+        drawIC('food',rx,4,iconS);ctx.fillText(Math.floor(gs.resources.food),rx+iconS+3,18);
+        ctx.font=(fSize-2)+'px monospace';ctx.fillStyle=rates.food>=0?'#7B7':'#F88';
+        ctx.fillText((rates.food>=0?'+':'')+rates.food,rx+iconS+3,32);
+        rx+=spacing;
+        // Wood
+        ctx.font='bold '+fSize+'px monospace';ctx.fillStyle='#DEB887';
+        drawIC('wood',rx,4,iconS);ctx.fillText(Math.floor(gs.resources.wood),rx+iconS+3,18);
+        rx+=spacing;
+        // Gold
+        ctx.font='bold '+fSize+'px monospace';ctx.fillStyle='#FFD700';
+        drawIC('gold',rx,4,iconS);ctx.fillText(Math.floor(gs.resources.gold),rx+iconS+3,18);
+        rx+=spacing;
+        // Day/Night indicator
+        ctx.fillStyle=gs.isNight?'#8888CC':'#FFDD44';
+        drawIC(gs.isNight?'moon':'sun',rx,4,iconS);
+        // Hunger alert on mobile
+        if(gs.hunger>=1){
+            let blink=Math.sin(gs.gameTime*4)>0;
+            if(gs.hunger>=2||blink){
+                ctx.fillStyle=gs.hunger>=3?'#F00':'#FA0';ctx.font='bold '+(fSize)+'px monospace';
+                ctx.fillText(gs.hunger>=3?'FOME!':'Fome!',rx+iconS+3,18);
+            }
+        }
+    } else {
+        // ─── Desktop Resource Bar (original) ───
+        ctx.font='bold 13px monospace';
+        let rx=14;
+        // População
+        ctx.fillStyle=gs.population>=gs.popCap?'#F66':'#8CF';
+        drawIC('pop',rx,3,16);ctx.fillText(gs.population+'/'+gs.popCap,rx+20,18);
+        ctx.font='10px monospace';ctx.fillStyle='#666';
+        ctx.fillText('Livres: '+Math.max(0,getAvailablePop()),rx+20,34);
+        rx+=120;
+        // Comida
+        ctx.font='bold 13px monospace';
+        ctx.fillStyle=gs.hunger>=2?'#F44':gs.hunger>=1?'#FA4':'#2ecc71';
+        drawIC('food',rx,3,16);ctx.fillText(Math.floor(gs.resources.food)+'',rx+20,18);
+        ctx.font='10px monospace';ctx.fillStyle=rates.food>=0?'#7B7':'#F88';
+        ctx.fillText((rates.food>=0?'+':'')+rates.food+'/min',rx+20,34);
+        rx+=105;
+        // Madeira
+        ctx.font='bold 13px monospace';ctx.fillStyle='#DEB887';
+        drawIC('wood',rx,3,16);ctx.fillText(Math.floor(gs.resources.wood)+'',rx+20,18);
+        ctx.font='10px monospace';ctx.fillStyle='#997';
+        ctx.fillText('+'+rates.wood+'/min',rx+20,34);
+        rx+=100;
+        // Pedra
+        ctx.font='bold 13px monospace';ctx.fillStyle='#B0BEC5';
+        drawIC('stone',rx,3,16);ctx.fillText(Math.floor(gs.resources.stone)+'',rx+20,18);
+        ctx.font='10px monospace';ctx.fillStyle='#8898A0';
+        ctx.fillText('+'+(rates.stone||0)+'/min',rx+20,34);
+        rx+=100;
+        // Ouro
+        ctx.font='bold 13px monospace';ctx.fillStyle='#FFD700';
+        drawIC('gold',rx,3,16);ctx.fillText(Math.floor(gs.resources.gold)+'',rx+20,18);
+        ctx.font='10px monospace';ctx.fillStyle='#BB8';
+        ctx.fillText('+'+rates.gold+'/min',rx+20,34);
+        rx+=100;
+        // Tropas
+        ctx.font='bold 13px monospace';ctx.fillStyle='#87CEEB';
+        drawIC('swords',rx,3,16);ctx.fillText(gs.units.filter(u=>u.alive).length+' tropas',rx+20,18);
+        rx+=110;
+        // Territórios
+        let pTerr=getOwnerTerritories(OWNER.PLAYER).length;
+        let aTerr=getOwnerTerritories(OWNER.ENEMY_A).length;
+        let bTerr=getOwnerTerritories(OWNER.ENEMY_B).length;
+        let vTerr=getOwnerTerritories(OWNER.VAMPIRES).length;
+        ctx.fillStyle='#9FD9FF';
+        drawIC('map',rx,3,16);ctx.fillText(pTerr+'P/'+aTerr+'B/'+bTerr+'M/'+vTerr+'V',rx+20,18);
+        ctx.font='10px monospace';ctx.fillStyle='#777';
+        let next=Math.max(0,Math.ceil(65-gs.waveTimer));
+        ctx.fillText('Onda '+gs.waveNumber+' ('+next+'s)',rx+20,34);
+        rx+=165;
+        // Dia/Noite
+        ctx.font='bold 13px monospace';
+        ctx.fillStyle=gs.isNight?'#8888CC':'#FFDD44';
+        drawIC(gs.isNight?'moon':'sun',rx,3,16);ctx.fillText(gs.isNight?'Noite':'Dia',rx+20,18);
+        ctx.font='10px monospace';ctx.fillStyle='#777';
+        ctx.fillText('[N] Diplomacia',rx+20,34);
+        rx+=115;
+        ctx.font='bold 13px monospace';ctx.fillStyle='#BBB';
+        drawIC('zoom',rx,3,16);ctx.fillText('x'+gs.zoom.toFixed(1),rx+20,18);
+        ctx.font='10px monospace';ctx.fillStyle='#777';
+        ctx.fillText('[O] Livro',rx+20,34);
+        rx+=85;
+        // Alerta de fome
+        if(gs.hunger>=1){
+            ctx.font='bold 14px monospace';
+            ctx.fillStyle=gs.hunger>=3?'#F00':gs.hunger>=2?'#F60':'#FA0';
+            let blink=Math.sin(gs.gameTime*4)>0;
+            if(gs.hunger>=2||blink){
+                let hMsg=gs.hunger>=3?'FOME EXTREMA!':gs.hunger>=2?'FOME SEVERA!':'Comida baixa!';
+                drawIC(gs.hunger>=3?'skull':'warn',rx,6,18);ctx.fillText(hMsg,rx+22,24);
+            }
         }
     }
 
     // ─── Barra de Ações (Base) ───
-    let btmH=50;let btmY=H-btmH;
+    let btmH=isMobile?36:50;let btmY=H-btmH;
     let btmGrad=ctx.createLinearGradient(0,btmY,0,H);
     btmGrad.addColorStop(0,'rgba(8,8,25,0.88)');
     btmGrad.addColorStop(1,'rgba(15,15,40,0.95)');
@@ -3277,44 +3650,66 @@ function renderUI(){
     ctx.strokeStyle='rgba(80,80,120,0.4)';ctx.lineWidth=1;
     ctx.beginPath();ctx.moveTo(0,btmY);ctx.lineTo(W,btmY);ctx.stroke();
 
-    ctx.font='11px monospace';ctx.fillStyle='#666';
-    ctx.fillText(' [B] Construir  [R] Recrutar  [U] Forjar  [J] Muros  [N] Diplomacia  [O] Livro  Scroll Zoom',15,btmY+18);
-
-    if(gs.isDragging&&gs.dragBuilding){
-        ctx.fillStyle='#0CF';ctx.font='13px monospace';
-        drawIC('move',4,btmY+26,14);ctx.fillText('Arrastando '+gs.dragBuilding.def.name+'... Solte para posicionar.',22,btmY+40);
-    } else if(gs.moveSelectionMode&&gs.movingBuildings.length>0){
-        ctx.fillStyle='#0CF';ctx.font='13px monospace';
-        drawIC('wall',4,btmY+26,14);ctx.fillText('Reposicionando '+gs.movingBuildings.length+' muro(s) em grupo. Clique para confirmar.',22,btmY+40);
-    } else if(gs.moveMode&&gs.movingBuilding){
-        ctx.fillStyle='#0CF';ctx.font='13px monospace';
-        drawIC('move',4,btmY+26,14);ctx.fillText('Movendo: '+gs.movingBuilding.def.name+'   (Clique para posicionar, ESC cancela)',22,btmY+40);
-    } else if(gs.buildMode){
-        let def=BUILD[gs.buildMode];
-        ctx.fillStyle='#FFD700';ctx.font='13px monospace';
-        drawIC('build',4,btmY+26,14);
-        let costStr='Construindo: '+def.name+'   Custo: G:'+def.cost.gold+' F:'+def.cost.food+' W:'+def.cost.wood+' S:'+(def.cost.stone||0)+'   (Clique para posicionar, ESC cancela)';
-        ctx.fillText(costStr,22,btmY+40);
-    } else if(gs.showBuildingMenu&&gs.selectedBuilding){
-        let sb=gs.selectedBuilding;
-        ctx.fillStyle='#FFD700';ctx.font='13px monospace';
-        drawIC('castle',4,btmY+26,14);ctx.fillText(sb.def.name+' | HP: '+sb.hp+'/'+sb.maxHp+(sb.type!=='CASTLE'?'   [M] Mover   [V] Vender':'')+'   [ESC] Fechar',22,btmY+40);
-    } else if(gs.selectedArmies.length>0){
-        let total=gs.selectedArmies.reduce((acc,a)=>acc+armyCount(a.comp),0);
-        ctx.fillStyle='#65D6FF';ctx.font='13px monospace';
-        drawIC('flag',4,btmY+26,14);ctx.fillText(gs.selectedArmies.length+' exercito(s) | tropas: '+total+' | Clique direito para comandar conquista/defesa',22,btmY+40);
-    } else if(gs.selectedUnits.length>0){
-        let info=gs.selectedUnits.length+' unidade(s) | ';
-        let types={};gs.selectedUnits.forEach(u=>{types[u.name]=(types[u.name]||0)+1});
-        for(let t in types)info+=types[t]+'x '+t+' ';
-        ctx.fillStyle='#0F0';ctx.font='13px monospace';
-        drawIC('star',4,btmY+26,14);ctx.fillText(info+' | Clique direito: mover/atacar | [G] mobiliza para exercito',22,btmY+40);
-    } else if(gs.selectedBuildings.length>1){
-        ctx.fillStyle='#FFD700';ctx.font='13px monospace';
-        drawIC('wall',4,btmY+26,14);ctx.fillText(gs.selectedBuildings.length+' construcoes selecionadas | [M] mover grupo de muros',22,btmY+40);
+    if(isMobile){
+        // Mobile: compact status in bottom bar
+        ctx.font='10px monospace';ctx.fillStyle='#999';
+        if(gs.buildMode){
+            let def=BUILD[gs.buildMode];
+            ctx.fillStyle='#FFD700';drawIC('build',6,btmY+6,14);
+            ctx.fillText(def.name+' - Toque para posicionar',24,btmY+18);
+        } else if(gs.selectedUnits.length>0){
+            ctx.fillStyle='#0F0';drawIC('star',6,btmY+6,14);
+            ctx.fillText(gs.selectedUnits.length+' unidade(s) - Toque: mover | Longo: atacar',24,btmY+18);
+        } else if(gs.selectedArmies.length>0){
+            let total=gs.selectedArmies.reduce((acc,a)=>acc+armyCount(a.comp),0);
+            ctx.fillStyle='#65D6FF';drawIC('flag',6,btmY+6,14);
+            ctx.fillText(gs.selectedArmies.length+' exército(s): '+total+' tropas',24,btmY+18);
+        } else {
+            ctx.fillStyle='#777';
+            let troopCount=gs.units.filter(u=>u.alive).length;
+            ctx.fillText('⚔️'+troopCount+' tropas | Onda '+gs.waveNumber+' | Zoom x'+gs.zoom.toFixed(1),8,btmY+14);
+            ctx.fillText('Forja:'+gs.upgrades.forge+'/5 | Alv:'+gs.upgrades.masonry+'/5',8,btmY+28);
+        }
     } else {
-        ctx.fillStyle='#9BB';ctx.font='12px monospace';
-        drawIC('gear',4,btmY+26,14);ctx.fillText('Forja:'+gs.upgrades.forge+'/5  |  Alvenaria:'+gs.upgrades.masonry+'/5',22,btmY+40);
+        ctx.font='11px monospace';ctx.fillStyle='#666';
+        ctx.fillText(' [B] Construir  [R] Recrutar  [U] Forjar  [J] Muros  [N] Diplomacia  [O] Livro  Scroll Zoom',15,btmY+18);
+
+        if(gs.isDragging&&gs.dragBuilding){
+            ctx.fillStyle='#0CF';ctx.font='13px monospace';
+            drawIC('move',4,btmY+26,14);ctx.fillText('Arrastando '+gs.dragBuilding.def.name+'... Solte para posicionar.',22,btmY+40);
+        } else if(gs.moveSelectionMode&&gs.movingBuildings.length>0){
+            ctx.fillStyle='#0CF';ctx.font='13px monospace';
+            drawIC('wall',4,btmY+26,14);ctx.fillText('Reposicionando '+gs.movingBuildings.length+' muro(s) em grupo. Clique para confirmar.',22,btmY+40);
+        } else if(gs.moveMode&&gs.movingBuilding){
+            ctx.fillStyle='#0CF';ctx.font='13px monospace';
+            drawIC('move',4,btmY+26,14);ctx.fillText('Movendo: '+gs.movingBuilding.def.name+'   (Clique para posicionar, ESC cancela)',22,btmY+40);
+        } else if(gs.buildMode){
+            let def=BUILD[gs.buildMode];
+            ctx.fillStyle='#FFD700';ctx.font='13px monospace';
+            drawIC('build',4,btmY+26,14);
+            let costStr='Construindo: '+def.name+'   Custo: G:'+def.cost.gold+' F:'+def.cost.food+' W:'+def.cost.wood+' S:'+(def.cost.stone||0)+'   (Clique para posicionar, ESC cancela)';
+            ctx.fillText(costStr,22,btmY+40);
+        } else if(gs.showBuildingMenu&&gs.selectedBuilding){
+            let sb=gs.selectedBuilding;
+            ctx.fillStyle='#FFD700';ctx.font='13px monospace';
+            drawIC('castle',4,btmY+26,14);ctx.fillText(sb.def.name+' | HP: '+sb.hp+'/'+sb.maxHp+(sb.type!=='CASTLE'?'   [M] Mover   [V] Vender':'')+'   [ESC] Fechar',22,btmY+40);
+        } else if(gs.selectedArmies.length>0){
+            let total=gs.selectedArmies.reduce((acc,a)=>acc+armyCount(a.comp),0);
+            ctx.fillStyle='#65D6FF';ctx.font='13px monospace';
+            drawIC('flag',4,btmY+26,14);ctx.fillText(gs.selectedArmies.length+' exercito(s) | tropas: '+total+' | Clique direito para comandar conquista/defesa',22,btmY+40);
+        } else if(gs.selectedUnits.length>0){
+            let info=gs.selectedUnits.length+' unidade(s) | ';
+            let types={};gs.selectedUnits.forEach(u=>{types[u.name]=(types[u.name]||0)+1});
+            for(let t in types)info+=types[t]+'x '+t+' ';
+            ctx.fillStyle='#0F0';ctx.font='13px monospace';
+            drawIC('star',4,btmY+26,14);ctx.fillText(info+' | Clique direito: mover/atacar | [G] mobiliza para exercito',22,btmY+40);
+        } else if(gs.selectedBuildings.length>1){
+            ctx.fillStyle='#FFD700';ctx.font='13px monospace';
+            drawIC('wall',4,btmY+26,14);ctx.fillText(gs.selectedBuildings.length+' construcoes selecionadas | [M] mover grupo de muros',22,btmY+40);
+        } else {
+            ctx.fillStyle='#9BB';ctx.font='12px monospace';
+            drawIC('gear',4,btmY+26,14);ctx.fillText('Forja:'+gs.upgrades.forge+'/5  |  Alvenaria:'+gs.upgrades.masonry+'/5',22,btmY+40);
+        }
     }
 
     // ─── Menu Construção ───
@@ -3428,7 +3823,7 @@ function renderUI(){
     }
 
     // ─── Minimapa ───
-    let mmS=140,mmX=W-mmS-12,mmY=50;
+    let mmS=isMobile?80:140,mmX=W-mmS-(isMobile?64:12),mmY=barH+4;
     ctx.fillStyle='rgba(0,0,0,0.85)';ctx.fillRect(mmX-3,mmY-3,mmS+6,mmS+6);
     ctx.strokeStyle='#FFD700';ctx.lineWidth=1;ctx.strokeRect(mmX-3,mmY-3,mmS+6,mmS+6);
 
@@ -3604,8 +3999,17 @@ function renderUI(){
         ctx.fillStyle='#FFD700';ctx.font='bold 48px monospace';ctx.textAlign='center';
         drawIC('pause',W/2-160,H/2-36,40);ctx.fillText('PAUSADO',W/2,H/2);
         ctx.font='18px monospace';ctx.fillStyle='#AAA';
-        ctx.fillText('Pressione [P] para continuar',W/2,H/2+40);
+        if(isMobile) ctx.fillText('Toque para continuar',W/2,H/2+40);
+        else ctx.fillText('Pressione [P] para continuar',W/2,H/2+40);
         ctx.textAlign='left';
+        if(isMobile){
+            let btnW=160,btnH=44,btnX=W/2-btnW/2,btnY=H/2+60;
+            ctx.fillStyle='rgba(50,150,50,0.8)';ctx.fillRect(btnX,btnY,btnW,btnH);
+            ctx.strokeStyle='#4F4';ctx.lineWidth=2;ctx.strokeRect(btnX,btnY,btnW,btnH);
+            ctx.fillStyle='#FFF';ctx.font='bold 16px monospace';ctx.textAlign='center';
+            ctx.fillText('▶ CONTINUAR',W/2,btnY+28);ctx.textAlign='left';
+            uiButtons.push({x:btnX,y:btnY,w:btnW,h:btnH,fn:()=>{gs.paused=false}});
+        }
     }
 
     // ─── Game Over ───
@@ -3617,8 +4021,292 @@ function renderUI(){
         ctx.fillText('Seu castelo foi destruído!',W/2,H/2+10);
         ctx.fillText('Ondas sobrevividas: '+gs.waveNumber,W/2,H/2+40);
         ctx.fillStyle='#FFD700';
-        ctx.fillText('Pressione [F5] para recomeçar',W/2,H/2+80);
+        if(isMobile){
+            let btnW=200,btnH=44,btnX=W/2-btnW/2,btnY=H/2+70;
+            ctx.fillStyle='rgba(200,50,50,0.8)';ctx.fillRect(btnX,btnY,btnW,btnH);
+            ctx.strokeStyle='#F44';ctx.lineWidth=2;ctx.strokeRect(btnX,btnY,btnW,btnH);
+            ctx.fillStyle='#FFF';ctx.font='bold 16px monospace';
+            ctx.fillText('🔄 RECOMEÇAR',W/2,btnY+28);
+            uiButtons.push({x:btnX,y:btnY,w:btnW,h:btnH,fn:()=>{location.reload()}});
+        } else {
+            ctx.fillText('Pressione [F5] para recomeçar',W/2,H/2+80);
+        }
         ctx.textAlign='left';
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // MOBILE UI OVERLAY
+    // ═══════════════════════════════════════════════════════════
+    if(isMobile && gs.phase==='playing'){
+        mobileUI.touchButtons=[];
+        let btnSize=48,pad=8,rightX=W-btnSize-pad;
+
+        // ─── Mobile Build Button (right side) ───
+        let buildBtnY=barH+pad+10;
+        ctx.fillStyle=mobileUI.showBuildPanel?'rgba(255,215,0,0.7)':'rgba(30,30,60,0.85)';
+        ctx.fillRect(rightX,buildBtnY,btnSize,btnSize);
+        ctx.strokeStyle='#FFD700';ctx.lineWidth=2;ctx.strokeRect(rightX,buildBtnY,btnSize,btnSize);
+        drawIC('build',rightX+8,buildBtnY+8,30);
+        mobileUI.touchButtons.push({x:rightX,y:buildBtnY,w:btnSize,h:btnSize,fn:()=>{
+            mobileUI.showBuildPanel=!mobileUI.showBuildPanel;mobileUI.showRecruitPanel=false;mobileUI.showArmyPanel=false;
+            gs.showBuildMenu=mobileUI.showBuildPanel;gs.showRecruitMenu=false;
+            if(!mobileUI.showBuildPanel){gs.buildMode=null;mobileUI.buildGhost=null;}
+        }});
+
+        // ─── Mobile Recruit Button ───
+        let recruitBtnY=buildBtnY+btnSize+pad;
+        ctx.fillStyle=mobileUI.showRecruitPanel?'rgba(200,70,70,0.7)':'rgba(30,30,60,0.85)';
+        ctx.fillRect(rightX,recruitBtnY,btnSize,btnSize);
+        ctx.strokeStyle='#F66';ctx.lineWidth=2;ctx.strokeRect(rightX,recruitBtnY,btnSize,btnSize);
+        drawIC('swords',rightX+8,recruitBtnY+8,30);
+        mobileUI.touchButtons.push({x:rightX,y:recruitBtnY,w:btnSize,h:btnSize,fn:()=>{
+            mobileUI.showRecruitPanel=!mobileUI.showRecruitPanel;mobileUI.showBuildPanel=false;mobileUI.showArmyPanel=false;
+            gs.showRecruitMenu=mobileUI.showRecruitPanel;gs.showBuildMenu=false;
+            if(!mobileUI.showRecruitPanel)gs.buildMode=null;
+        }});
+
+        // ─── Mobile Army Overview Button ───
+        let armyBtnY=recruitBtnY+btnSize+pad;
+        ctx.fillStyle=mobileUI.showArmyPanel?'rgba(70,180,255,0.7)':'rgba(30,30,60,0.85)';
+        ctx.fillRect(rightX,armyBtnY,btnSize,btnSize);
+        ctx.strokeStyle='#4FC3F7';ctx.lineWidth=2;ctx.strokeRect(rightX,armyBtnY,btnSize,btnSize);
+        drawIC('flag',rightX+8,armyBtnY+8,30);
+        mobileUI.touchButtons.push({x:rightX,y:armyBtnY,w:btnSize,h:btnSize,fn:()=>{
+            mobileUI.showArmyPanel=!mobileUI.showArmyPanel;mobileUI.showBuildPanel=false;mobileUI.showRecruitPanel=false;
+        }});
+
+        // ─── Mobile Diplomacy Button ───
+        let diploBtnY=armyBtnY+btnSize+pad;
+        ctx.fillStyle=gs.showDiplomacy?'rgba(200,70,70,0.7)':'rgba(30,30,60,0.85)';
+        ctx.fillRect(rightX,diploBtnY,btnSize,btnSize);
+        ctx.strokeStyle='#CC4444';ctx.lineWidth=2;ctx.strokeRect(rightX,diploBtnY,btnSize,btnSize);
+        drawIC('diplomacy',rightX+8,diploBtnY+8,30);
+        mobileUI.touchButtons.push({x:rightX,y:diploBtnY,w:btnSize,h:btnSize,fn:()=>{
+            gs.showDiplomacy=!gs.showDiplomacy;gs.showGuide=false;
+        }});
+
+        // ─── Mobile Pause Button ───
+        let pauseBtnY=diploBtnY+btnSize+pad;
+        ctx.fillStyle='rgba(30,30,60,0.85)';
+        ctx.fillRect(rightX,pauseBtnY,btnSize,btnSize);
+        ctx.strokeStyle='#AAA';ctx.lineWidth=2;ctx.strokeRect(rightX,pauseBtnY,btnSize,btnSize);
+        drawIC('pause',rightX+8,pauseBtnY+8,30);
+        mobileUI.touchButtons.push({x:rightX,y:pauseBtnY,w:btnSize,h:btnSize,fn:()=>{gs.paused=!gs.paused}});
+
+        // ─── Mobile Guide Button ───
+        let guideBtnY=pauseBtnY+btnSize+pad;
+        ctx.fillStyle=gs.showGuide?'rgba(216,180,106,0.7)':'rgba(30,30,60,0.85)';
+        ctx.fillRect(rightX,guideBtnY,btnSize,btnSize);
+        ctx.strokeStyle='#d8b46a';ctx.lineWidth=2;ctx.strokeRect(rightX,guideBtnY,btnSize,btnSize);
+        drawIC('book',rightX+8,guideBtnY+8,30);
+        mobileUI.touchButtons.push({x:rightX,y:guideBtnY,w:btnSize,h:btnSize,fn:()=>{
+            gs.showGuide=!gs.showGuide;gs.showDiplomacy=false;if(gs.showGuide)gs.guideQuery='';
+        }});
+
+        // ─── Mobile Build Panel (left side, slide-in) ───
+        if(mobileUI.showBuildPanel){
+            let pw=Math.min(220,W*0.55),ph=BUILD_LIST.length*56+50,px2=pad,py=barH+pad;
+            ctx.fillStyle='rgba(12,12,30,0.96)';ctx.fillRect(px2,py,pw,ph);
+            ctx.strokeStyle='rgba(255,215,0,0.5)';ctx.lineWidth=2;ctx.strokeRect(px2,py,pw,ph);
+            ctx.fillStyle='rgba(255,215,0,0.08)';ctx.fillRect(px2+1,py+1,pw-2,34);
+            drawIC('build',px2+8,py+6,20);
+            ctx.fillStyle='#FFD700';ctx.font='bold 14px monospace';ctx.fillText('CONSTRUÇÕES',px2+34,py+24);
+
+            for(let i=0;i<BUILD_LIST.length;i++){
+                let type=BUILD_LIST[i],def=BUILD[type];
+                let by=py+40+i*56,ok=canAfford(def.cost);
+                ctx.fillStyle=type===gs.buildMode?'rgba(255,215,0,0.2)':'rgba(35,35,60,0.8)';
+                ctx.fillRect(px2+4,by,pw-8,50);
+                ctx.strokeStyle=ok?'rgba(100,100,140,0.5)':'rgba(100,50,50,0.5)';ctx.lineWidth=1;ctx.strokeRect(px2+4,by,pw-8,50);
+                drawIC(def.icon,px2+10,by+6,22);
+                ctx.fillStyle=ok?'#EEE':'#666';ctx.font='bold 13px monospace';
+                ctx.fillText(def.name,px2+36,by+20);
+                ctx.fillStyle=ok?'#999':'#555';ctx.font='10px monospace';
+                ctx.fillText('G:'+def.cost.gold+' F:'+def.cost.food+' W:'+def.cost.wood,px2+36,by+36);
+                mobileUI.touchButtons.push({x:px2+4,y:by,w:pw-8,h:50,fn:(function(t){return function(){
+                    gs.buildMode=t;mobileUI.showBuildPanel=false;gs.showBuildMenu=false;
+                    addMessage('[i] Toque no mapa para posicionar');
+                }})(type)});
+            }
+        }
+
+        // ─── Mobile Recruit Panel ───
+        if(mobileUI.showRecruitPanel){
+            let pw=Math.min(240,W*0.6),ph=UNIT_LIST.length*56+60,px2=pad,py=barH+pad;
+            ctx.fillStyle='rgba(12,12,30,0.96)';ctx.fillRect(px2,py,pw,ph);
+            ctx.strokeStyle='rgba(200,70,70,0.5)';ctx.lineWidth=2;ctx.strokeRect(px2,py,pw,ph);
+            ctx.fillStyle='rgba(200,70,70,0.08)';ctx.fillRect(px2+1,py+1,pw-2,34);
+            drawIC('swords',px2+8,py+6,20);
+            ctx.fillStyle='#F66';ctx.font='bold 14px monospace';ctx.fillText('RECRUTAR',px2+34,py+24);
+
+            let hb=hasBarracks();
+            for(let i=0;i<UNIT_LIST.length;i++){
+                let type=UNIT_LIST[i],def=UDEF[type];
+                let by=py+40+i*56,ok=canAfford(def.cost)&&hb&&getAvailablePop()>=(def.cost.pop||0);
+                ctx.fillStyle='rgba(35,35,60,0.8)';ctx.fillRect(px2+4,by,pw-8,50);
+                ctx.strokeStyle=ok?'rgba(100,100,140,0.5)':'rgba(100,50,50,0.5)';ctx.lineWidth=1;ctx.strokeRect(px2+4,by,pw-8,50);
+                drawIC(def.icon,px2+10,by+6,22);
+                ctx.fillStyle=ok?'#EEE':'#666';ctx.font='bold 13px monospace';
+                ctx.fillText(def.name,px2+36,by+20);
+                ctx.fillStyle=ok?'#999':'#555';ctx.font='10px monospace';
+                ctx.fillText('G:'+def.cost.gold+' F:'+def.cost.food+' Pop:'+(def.cost.pop||0),px2+36,by+36);
+                mobileUI.touchButtons.push({x:px2+4,y:by,w:pw-8,h:50,fn:(function(t){return function(){
+                    recruitUnit(t);
+                }})(type)});
+            }
+            if(!hb){ctx.fillStyle='#F44';ctx.font='12px monospace';drawIC('warn',px2+10,py+ph-20,14);ctx.fillText('Construa um Quartel!',px2+28,py+ph-10)}
+        }
+
+        // ─── Mobile Army Panel ───
+        if(mobileUI.showArmyPanel){
+            let pw=Math.min(240,W*0.6),px2=pad,py=barH+pad;
+            let swordsmen=gs.units.filter(u=>u.alive&&u.type==='SWORDSMAN').length;
+            let archers=gs.units.filter(u=>u.alive&&u.type==='ARCHER').length;
+            let spearmen=gs.units.filter(u=>u.alive&&u.type==='SPEARMAN').length;
+            let hunters=gs.units.filter(u=>u.alive&&u.type==='HUNTER').length;
+            let armyList=gs.armies.filter(a=>a.owner===OWNER.PLAYER);
+            let ph=180+armyList.length*36;
+            ctx.fillStyle='rgba(12,12,30,0.96)';ctx.fillRect(px2,py,pw,ph);
+            ctx.strokeStyle='rgba(70,180,255,0.5)';ctx.lineWidth=2;ctx.strokeRect(px2,py,pw,ph);
+            ctx.fillStyle='rgba(70,180,255,0.08)';ctx.fillRect(px2+1,py+1,pw-2,34);
+            drawIC('flag',px2+8,py+6,20);
+            ctx.fillStyle='#4FC3F7';ctx.font='bold 14px monospace';ctx.fillText('EXÉRCITO',px2+34,py+24);
+
+            ctx.fillStyle='#EEE';ctx.font='13px monospace';
+            let ey=py+50;
+            drawIC('swords',px2+10,ey-2,14);ctx.fillText('Espadachins: '+swordsmen,px2+30,ey+10);ey+=24;
+            drawIC('bow',px2+10,ey-2,14);ctx.fillText('Arqueiros: '+archers,px2+30,ey+10);ey+=24;
+            drawIC('spear',px2+10,ey-2,14);ctx.fillText('Lanceiros: '+spearmen,px2+30,ey+10);ey+=24;
+            drawIC('bow',px2+10,ey-2,14);ctx.fillText('Caçadores: '+hunters,px2+30,ey+10);ey+=24;
+
+            // Select all units button
+            let sabY=ey+6;
+            ctx.fillStyle='rgba(0,200,100,0.6)';ctx.fillRect(px2+8,sabY,pw-16,32);
+            ctx.strokeStyle='#0F0';ctx.lineWidth=1;ctx.strokeRect(px2+8,sabY,pw-16,32);
+            ctx.fillStyle='#FFF';ctx.font='bold 12px monospace';ctx.textAlign='center';
+            ctx.fillText('SELECIONAR TODOS',px2+pw/2,sabY+20);ctx.textAlign='left';
+            mobileUI.touchButtons.push({x:px2+8,y:sabY,w:pw-16,h:32,fn:()=>{
+                gs.selectedUnits.forEach(u=>u.selected=false);gs.selectedUnits=[];
+                for(let u of gs.units){if(!u.alive)continue;u.selected=true;gs.selectedUnits.push(u)}
+                mobileUI.showArmyPanel=false;
+            }});
+
+            // Army formations
+            ey=sabY+42;
+            for(let ai=0;ai<armyList.length;ai++){
+                let a=armyList[ai];let total=armyCount(a.comp);
+                ctx.fillStyle='rgba(40,40,70,0.8)';ctx.fillRect(px2+8,ey,pw-16,30);
+                ctx.strokeStyle='#4FC3F7';ctx.lineWidth=1;ctx.strokeRect(px2+8,ey,pw-16,30);
+                ctx.fillStyle='#CCC';ctx.font='11px monospace';
+                ctx.fillText('Exército '+(ai+1)+': '+total+' tropas',px2+14,ey+20);
+                mobileUI.touchButtons.push({x:px2+8,y:ey,w:pw-16,h:30,fn:(function(army){return function(){
+                    gs.selectedArmies=[army];mobileUI.showArmyPanel=false;
+                }})(a)});
+                ey+=36;
+            }
+        }
+
+        // ─── Quick Battle Buttons (bottom, when units are selected) ───
+        if(gs.selectedUnits.length>0 || gs.selectedArmies.length>0){
+            let bbtnW=64,bbtnH=48,bbtnPad=10;
+            let totalW=(bbtnW+bbtnPad)*3-bbtnPad;
+            let bbtnX=W/2-totalW/2,bbtnY=H-btmH-bbtnH-16;
+
+            // Attack button
+            ctx.fillStyle='rgba(200,50,50,0.85)';ctx.fillRect(bbtnX,bbtnY,bbtnW,bbtnH);
+            ctx.strokeStyle='#F44';ctx.lineWidth=2;ctx.strokeRect(bbtnX,bbtnY,bbtnW,bbtnH);
+            drawIC('swords',bbtnX+bbtnW/2-10,bbtnY+4,20);
+            ctx.fillStyle='#FFF';ctx.font='bold 10px monospace';ctx.textAlign='center';
+            ctx.fillText('ATACAR',bbtnX+bbtnW/2,bbtnY+bbtnH-6);ctx.textAlign='left';
+            mobileUI.touchButtons.push({x:bbtnX,y:bbtnY,w:bbtnW,h:bbtnH,fn:()=>{
+                // Find nearest enemy and attack
+                let nearest=null,nd=Infinity;
+                for(let en of gs.enemies){
+                    if(!en.alive)continue;
+                    let d=dist(gs.king.x,gs.king.y,en.x,en.y);
+                    if(d<nd){nd=d;nearest=en}
+                }
+                if(nearest){
+                    for(let u of gs.selectedUnits){u.targetEnemy=nearest;u.moveTarget=null}
+                    addMessage('[!] Atacando inimigo mais próximo!');
+                }
+            }});
+
+            // Defend button
+            bbtnX+=bbtnW+bbtnPad;
+            ctx.fillStyle='rgba(50,100,200,0.85)';ctx.fillRect(bbtnX,bbtnY,bbtnW,bbtnH);
+            ctx.strokeStyle='#48F';ctx.lineWidth=2;ctx.strokeRect(bbtnX,bbtnY,bbtnW,bbtnH);
+            drawIC('shield',bbtnX+bbtnW/2-10,bbtnY+4,20);
+            ctx.fillStyle='#FFF';ctx.font='bold 10px monospace';ctx.textAlign='center';
+            ctx.fillText('DEFENDER',bbtnX+bbtnW/2,bbtnY+bbtnH-6);ctx.textAlign='left';
+            mobileUI.touchButtons.push({x:bbtnX,y:bbtnY,w:bbtnW,h:bbtnH,fn:()=>{
+                let castle=gs.buildings.find(b=>b.type==='CASTLE');
+                if(castle){
+                    let cx2=(castle.x+1.5)*TILE,cy2=(castle.y+1.5)*TILE;
+                    for(let i=0;i<gs.selectedUnits.length;i++){
+                        let u=gs.selectedUnits[i];
+                        let angle=(i/gs.selectedUnits.length)*Math.PI*2;
+                        u.moveTarget={x:cx2+Math.cos(angle)*80,y:cy2+Math.sin(angle)*80};
+                        u.targetEnemy=null;
+                    }
+                    addMessage('[!] Defendendo o castelo!');
+                }
+            }});
+
+            // Formation / Group to army button
+            bbtnX+=bbtnW+bbtnPad;
+            ctx.fillStyle='rgba(50,150,50,0.85)';ctx.fillRect(bbtnX,bbtnY,bbtnW,bbtnH);
+            ctx.strokeStyle='#4F4';ctx.lineWidth=2;ctx.strokeRect(bbtnX,bbtnY,bbtnW,bbtnH);
+            drawIC('flag',bbtnX+bbtnW/2-10,bbtnY+4,20);
+            ctx.fillStyle='#FFF';ctx.font='bold 10px monospace';ctx.textAlign='center';
+            ctx.fillText('EXÉRCITO',bbtnX+bbtnW/2,bbtnY+bbtnH-6);ctx.textAlign='left';
+            mobileUI.touchButtons.push({x:bbtnX,y:bbtnY,w:bbtnW,h:bbtnH,fn:()=>{
+                if(gs.selectedUnits.length>0){
+                    let t=worldToTerr(gs.king.x,gs.king.y);
+                    unitsToArmy([...gs.selectedUnits],{x:t.x,y:t.y});
+                }
+            }});
+        }
+
+        // ─── Ghost Building Preview (mobile) ───
+        if(mobileUI.buildGhost){
+            let def=BUILD[mobileUI.buildGhost.type];
+            let tile=w2t(mouse.wx,mouse.wy);
+            ctx.save();ctx.scale(gs.zoom,gs.zoom);
+            let sx=tile.x*TILE-gs.camera.x,sy=tile.y*TILE-gs.camera.y;
+            let gw=def.w*TILE,gh=def.h*TILE;
+            let ok=canBuild(tile.x,tile.y,def)&&canAfford(def.cost);
+            ctx.fillStyle=ok?'rgba(0,255,0,0.3)':'rgba(255,0,0,0.3)';
+            ctx.fillRect(sx,sy,gw,gh);
+            ctx.strokeStyle=ok?'#0F0':'#F00';ctx.lineWidth=2;ctx.strokeRect(sx,sy,gw,gh);
+            let spr=SC[mobileUI.buildGhost.type.toLowerCase()];
+            if(spr){ctx.globalAlpha=0.6;ctx.drawImage(spr,sx,sy);ctx.globalAlpha=1}
+            ctx.restore();
+            // Confirm/Cancel buttons
+            let cbW=120,cbH=36,cbY=H-btmH-cbH-60;
+            ctx.fillStyle='rgba(0,180,0,0.85)';ctx.fillRect(W/2-cbW-10,cbY,cbW,cbH);
+            ctx.strokeStyle='#0F0';ctx.lineWidth=2;ctx.strokeRect(W/2-cbW-10,cbY,cbW,cbH);
+            ctx.fillStyle='#FFF';ctx.font='bold 14px monospace';ctx.textAlign='center';
+            ctx.fillText('✓ CONFIRMAR',W/2-cbW/2-10,cbY+24);ctx.textAlign='left';
+            mobileUI.touchButtons.push({x:W/2-cbW-10,y:cbY,w:cbW,h:cbH,fn:()=>{
+                let type=mobileUI.buildGhost.type;let bdef=BUILD[type];
+                let btile=w2t(mouse.wx,mouse.wy);
+                if(canBuild(btile.x,btile.y,bdef)&&canAfford(bdef.cost)){
+                    spend(bdef.cost);gs.buildings.push(new Building(btile.x,btile.y,type));
+                    addMessage('[+] '+bdef.name+' construído!');addParticle(mouse.wx,mouse.wy,'+','#00FF00');
+                }else if(!canAfford(bdef.cost)){addMessage('[x] Recursos insuficientes!')}
+                else{addMessage('[x] Local inválido!')}
+                mobileUI.buildGhost=null;gs.buildMode=null;
+            }});
+
+            ctx.fillStyle='rgba(180,0,0,0.85)';ctx.fillRect(W/2+10,cbY,cbW,cbH);
+            ctx.strokeStyle='#F00';ctx.lineWidth=2;ctx.strokeRect(W/2+10,cbY,cbW,cbH);
+            ctx.fillStyle='#FFF';ctx.font='bold 14px monospace';ctx.textAlign='center';
+            ctx.fillText('✗ CANCELAR',W/2+cbW/2+10,cbY+24);ctx.textAlign='left';
+            mobileUI.touchButtons.push({x:W/2+10,y:cbY,w:cbW,h:cbH,fn:()=>{
+                mobileUI.buildGhost=null;gs.buildMode=null;
+            }});
+        }
     }
 }
 
@@ -3635,45 +4323,70 @@ function renderMenu(){
 
     // Castelo grande no fundo
     ctx.globalAlpha=0.15;
-    let scaleX=6,scaleY=6;
+    let scaleX=isMobile?3:6,scaleY=isMobile?3:6;
     let csx=W/2-SC.castle.width*scaleX/2,csy=H/2-SC.castle.height*scaleY/2+40;
     ctx.drawImage(SC.castle,csx,csy,SC.castle.width*scaleX,SC.castle.height*scaleY);
     ctx.globalAlpha=1;
 
     // Título
     let glow=0.7+Math.sin(gs.gameTime*2)*0.3;
-    ctx.fillStyle=`rgba(255,215,0,${glow})`;ctx.font='bold 56px monospace';ctx.textAlign='center';
-    drawIC('swords',W/2-280,H/2-136,40);ctx.fillText('REINO MEDIEVAL',W/2,H/2-100);drawIC('swords',W/2+140,H/2-136,40);
+    let titleSize=isMobile?Math.min(36,W/12):56;
+    ctx.fillStyle=`rgba(255,215,0,${glow})`;ctx.font='bold '+titleSize+'px monospace';ctx.textAlign='center';
+    if(!isMobile){drawIC('swords',W/2-280,H/2-136,40);ctx.fillText('REINO MEDIEVAL',W/2,H/2-100);drawIC('swords',W/2+140,H/2-136,40);}
+    else{ctx.fillText('REINO MEDIEVAL',W/2,H/2-100);}
 
-    ctx.fillStyle='#CCC';ctx.font='20px monospace';
+    ctx.fillStyle='#CCC';ctx.font=(isMobile?'14':'20')+'px monospace';
     ctx.fillText('Pixel Art Strategy Game',W/2,H/2-60);
 
-    ctx.fillStyle='#FFF';ctx.font='16px monospace';
+    ctx.fillStyle='#FFF';ctx.font=(isMobile?'14':'16')+'px monospace';
     let blink=Math.sin(gs.gameTime*3)>0;
-    if(blink) ctx.fillText('▶ Pressione qualquer tecla para começar ◀',W/2,H/2+10);
+    if(blink){
+        if(isMobile) ctx.fillText('▶ Toque para começar ◀',W/2,H/2+10);
+        else ctx.fillText('▶ Pressione qualquer tecla para começar ◀',W/2,H/2+10);
+    }
 
     // Instruções
-    ctx.fillStyle='#888';ctx.font='13px monospace';
-    let info=[
-        'WASD - Mover o Rei',
-        '[B] - Menu de Construcao',
-        '[R] - Menu de Recrutamento',
-        'Pedreira minera pedra perto das rochas',
-        '[U] melhora espadas | [J] reforca muralhas',
-        '[G] - Converter tropas em exercito',
-        'Scroll - Zoom / Botao do meio arrasta camera',
-        '[O] - Livro de ajuda com pesquisa',
-        'Arrastar construcao para mover',
-        'Click direito - Mover/Atacar tropas',
-        'Construa casas para aumentar populacao',
-        'Produza comida para evitar a fome',
-        '[F5] Salvar  |  [F9] Carregar',
-        '[P] - Pausar'
-    ];
-    let infoIcons=['gamepad','build','swords','quarry','hammer','flag','zoom','book','mouse','mouse','pop','food','save','pause'];
-    for(let i=0;i<info.length;i++){
-        drawIC(infoIcons[i],W/2-240,H/2+48+i*22,14);
-        ctx.fillText(info[i],W/2-218,H/2+60+i*22);
+    ctx.fillStyle='#888';
+    if(isMobile){
+        ctx.font='12px monospace';
+        let minfo=[
+            'Toque - Selecionar unidades/construções',
+            'Arrastar - Mover câmera',
+            'Pinça 2 dedos - Zoom',
+            'Toque longo - Mover/Atacar tropas',
+            'Botões laterais - Construir/Recrutar',
+            'Construa casas para populacao',
+            'Produza comida para evitar fome',
+            'Auto-save a cada 3 minutos'
+        ];
+        let micons=['gamepad','zoom','zoom','swords','build','pop','food','save'];
+        for(let i=0;i<minfo.length;i++){
+            drawIC(micons[i],W/2-Math.min(160,W*0.4),H/2+38+i*22,14);
+            ctx.fillText(minfo[i],W/2-Math.min(160,W*0.4)+20,H/2+50+i*22);
+        }
+    } else {
+        ctx.font='13px monospace';
+        let info=[
+            'WASD - Mover o Rei',
+            '[B] - Menu de Construcao',
+            '[R] - Menu de Recrutamento',
+            'Pedreira minera pedra perto das rochas',
+            '[U] melhora espadas | [J] reforca muralhas',
+            '[G] - Converter tropas em exercito',
+            'Scroll - Zoom / Botao do meio arrasta camera',
+            '[O] - Livro de ajuda com pesquisa',
+            'Arrastar construcao para mover',
+            'Click direito - Mover/Atacar tropas',
+            'Construa casas para aumentar populacao',
+            'Produza comida para evitar a fome',
+            '[F5] Salvar  |  [F9] Carregar',
+            '[P] - Pausar'
+        ];
+        let infoIcons=['gamepad','build','swords','quarry','hammer','flag','zoom','book','mouse','mouse','pop','food','save','pause'];
+        for(let i=0;i<info.length;i++){
+            drawIC(infoIcons[i],W/2-240,H/2+48+i*22,14);
+            ctx.fillText(info[i],W/2-218,H/2+60+i*22);
+        }
     }
 
     ctx.fillStyle='#555';ctx.font='11px monospace';
@@ -3710,6 +4423,18 @@ function gameLoop(timestamp){
 
     if(!gs.paused&&gs.phase==='playing'){
         gs.gameTime+=dt;
+
+        // Auto-save (mobile and desktop)
+        autoSaveTimer+=dt;
+        if(autoSaveTimer>=AUTO_SAVE_INTERVAL){
+            autoSaveTimer=0;
+            try{saveGame()}catch(e){}
+        }
+
+        // Mobile performance: limit particles
+        if(isMobile && gs.particles.length>MOBILE_LIMITS.maxParticles){
+            gs.particles.splice(0,gs.particles.length-MOBILE_LIMITS.maxParticles);
+        }
 
         // Atualizar rei
         if(gs.king) gs.king.update(dt);
@@ -3867,6 +4592,18 @@ function init(){
     gs.camera.y=gs.king.y-H/(2*gs.zoom);
     clampCamera();
     updateMouseWorld();
+
+    // Auto-save on page hide/close (mobile and desktop)
+    document.addEventListener('visibilitychange',()=>{
+        if(document.visibilityState==='hidden'&&gs.phase==='playing'){
+            try{saveGame()}catch(e){}
+        }
+    });
+    window.addEventListener('beforeunload',()=>{
+        if(gs.phase==='playing'){
+            try{saveGame()}catch(e){}
+        }
+    });
 
     requestAnimationFrame(gameLoop);
 }
