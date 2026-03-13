@@ -74,9 +74,10 @@ const BUILD_LIST = ['HOUSE','HOUSE_MED','HOUSE_BIG','FARM','FISHING','LUMBER','Q
 const UDEF = {
     SWORDSMAN:{id:'SWORDSMAN',name:'Espadachim',cost:{gold:40,food:20,pop:1}, hp:80, atk:12,def:8, spd:1.5,range:1.2,icon:'swords'},
     ARCHER:   {id:'ARCHER',   name:'Arqueiro',  cost:{gold:50,food:15,pop:1}, hp:50, atk:15,def:4, spd:1.8,range:5,  icon:'bow'},
-    SPEARMAN: {id:'SPEARMAN', name:'Lanceiro',  cost:{gold:35,food:25,pop:1}, hp:70, atk:10,def:10,spd:1.3,range:1.5,icon:'spear'}
+    SPEARMAN: {id:'SPEARMAN', name:'Lanceiro',  cost:{gold:35,food:25,pop:1}, hp:70, atk:10,def:10,spd:1.3,range:1.5,icon:'spear'},
+    HUNTER:   {id:'HUNTER',   name:'Caçador',   cost:{gold:15,food:10,pop:1}, hp:60, atk:12,def:3, spd:2.0,range:4,  icon:'bow'}
 };
-const UNIT_LIST = ['SWORDSMAN','ARCHER','SPEARMAN'];
+const UNIT_LIST = ['SWORDSMAN','ARCHER','SPEARMAN','HUNTER'];
 const ENEMY_SPRITE_MAP = {soldier:'enemy',bandit:'bandit',creature:'creature'};
 
 // Territorios e reinos
@@ -108,13 +109,22 @@ const ORC_PATH='sprites/craftpix-net-363992-free-top-down-orc-game-character-pix
 const TREE_IMG_PATH='sprites/craftpix-net-385863-free-top-down-trees-pixel-art/PNG/Assets_separately/Trees';
 const ROCK_IMG_PATH='sprites/craftpix-net-974061-free-rocks-and-stones-top-down-pixel-art/PNG/Objects_separately';
 const RUIN_IMG_PATH='sprites/craftpix-net-934618-free-top-down-ruins-pixel-art/PNG/Assets';
-const UNIT_SHEET_MAP={SWORDSMAN:'char_lvl1',ARCHER:'char_lvl2',SPEARMAN:'char_lvl3'};
+const UNIT_SHEET_MAP={SWORDSMAN:'char_lvl1',ARCHER:'char_lvl2',SPEARMAN:'char_lvl3',HUNTER:'char_lvl2'};
 const ENEMY_SHEET_MAP={soldier:'orc1',bandit:'orc2',creature:'orc3'};
 const VAMP_STATS={
     vamp_warrior:{name:'Vampiro Guerreiro',hp:75,atk:14,def:6,spd:2.0,range:1.3,lifeSteal:0.25,loot:{gold:25,food:0}},
     vamp_lord:{name:'Vampiro Lorde',hp:150,atk:20,def:12,spd:1.2,range:1.5,auraRange:5,auraBonus:0.2,loot:{gold:50,food:0}},
     giant_bat:{name:'Morcego Gigante',hp:35,atk:8,def:2,spd:3.0,range:1.0,flying:true,loot:{gold:15,food:0}}
 };
+// ─── Animais Selvagens ───
+const ANIM_DEF={
+    cervo: {name:'Cervo', hp:30, spd:1.4, food:15, aggressive:false, atk:0, color:'#C2924A', icon:'🦌'},
+    javali:{name:'Javali',hp:50, spd:1.2, food:20, aggressive:true,  atk:8, color:'#7A5C38', icon:'🐗'},
+    coelho:{name:'Coelho',hp:10, spd:2.5, food:5,  aggressive:false, atk:0, color:'#D4A870', icon:'🐇'},
+    lobo:  {name:'Lobo',  hp:40, spd:2.0, food:8,  aggressive:true,  atk:12,color:'#555555', icon:'🐺'}
+};
+const ANIMAL_TYPES=['cervo','javali','coelho','lobo'];
+const ANIMAL_SPRITE_PATH='sprites/animais/PNG/Without_shadow';
 const DAY_CYCLE=180;
 const DIPLO={WAR:'war',NEUTRAL:'neutral',PEACE:'peace',ALLIANCE:'alliance'};
 const GUIDE_ENTRIES=[
@@ -126,6 +136,7 @@ const GUIDE_ENTRIES=[
     {title:'Como evitar fome', keywords:'fome comida fazenda pesca trabalhadores', body:'Construa Fazendas e Portos de Pesca. Garanta trabalhadores livres e estoque de comida para evitar queda de produtividade e mortes.'},
     {title:'Como aumentar populacao', keywords:'populacao casas moradores crescimento', body:'Construa Casas Pequenas, Medias e Grandes para aumentar o limite populacional. A populacao cresce so se houver espaco e comida.'},
     {title:'Pedra e mineracao', keywords:'pedra mineradores pedreira rocha upgrade muralha espada', body:'Construa Pedreiras perto de rochas para minerar pedra. Use [U] para forjar espadas melhores e [J] para reforcar muralhas com pedra.'},
+    {title:'Sistema de Caca', keywords:'cacador caca animal cervo javali coelho lobo comida cacar', body:'Recrute Cacadores no Quartel. Eles saem sozinhos para cacar animais (cervo, javali, coelho, lobo), coletam carne e trazem comida para a cidade. Lobos e javalis sao perigosos e podem atacar os cacadores.'},
     {title:'Reino dos Vampiros', keywords:'vampiro vampiros reino noturno morcego covil cemiterio', body:'O Reino dos Vampiros ocupa o nordeste do mapa. Vampiros ficam mais fortes a noite e mais fracos de dia. Destrua o Castelo Vampiro para conquistar o territorio.'},
     {title:'Diplomacia entre reinos', keywords:'diplomacia guerra paz alianca reino declarar neutro', body:'Pressione [N] para abrir o painel diplomatico. Voce pode declarar guerra, fazer alianca ou estabelecer paz com outros reinos. Cada reino possui territorio, exercito e economia propria.'},
     {title:'Ciclo dia e noite', keywords:'dia noite ciclo vampiro noturno sol lua', body:'O mundo alterna entre dia e noite. A noite, vampiros ficam mais fortes e rapidos. De dia, ficam mais fracos. Observe o indicador no topo da tela.'},
@@ -196,7 +207,10 @@ const gs = {
     isNight: false,
     showDiplomacy: false,
     diplomacy: {},
-    eventTimer: 0
+    eventTimer: 0,
+    animals: [],
+    animalSpawnTimer: 0,
+    animalRespawnQueue: []
 };
 globalThis.__gameState = gs;
 
@@ -398,6 +412,10 @@ function initIcons(){
     IC.diplomacy=IC.swords;
     // Star
     IC.star=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><polygon points="12,2 15,9 22,9 16,14 18,22 12,17 6,22 8,14 2,9 9,9" fill="#4FC3F7"/></svg>`,S);
+    // Hunt / bow+arrow for hunter
+    IC.hunt=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M5 3c0 7 0 14 0 18" stroke="#8D6E63" stroke-width="2.5" fill="none" stroke-linecap="round"/><path d="M5 3c7 3 7 15 0 18" stroke="#A0522D" stroke-width="2" fill="none"/><line x1="5" y1="11" x2="19" y2="11" stroke="#E0E0E0" stroke-width="1.5"/><polygon points="19,11 16,9 16,13" fill="#E0E0E0"/><circle cx="21" cy="5" r="2" fill="#8BC34A"/></svg>`,S);
+    // Meat / food from hunting
+    IC.meat=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><ellipse cx="12" cy="13" rx="7" ry="5" fill="#CC4444"/><ellipse cx="12" cy="13" rx="5" ry="3.5" fill="#DD6666"/><rect x="10" y="5" width="4" height="10" rx="2" fill="#AA3333"/><circle cx="12" cy="4" r="3" fill="#EEEEEE" stroke="#BBBBBB" stroke-width="1"/></svg>`,S);
 }
 
 // Desenha um ícone na posição (x,y) com tamanho s
@@ -761,6 +779,39 @@ function initSprites(){
         loadImg(ROCK_IMG_PATH+'/Rock6_5_no_shadow.png'),
         loadImg(ROCK_IMG_PATH+'/Rock8_3_no_shadow.png')
     ];
+
+    // ─── Sprites de Animais ───
+    SC.animal_cervo={
+        idle: loadImg(ANIMAL_SPRITE_PATH+'/Deer/Deer_Idle.png'),
+        walk: loadImg(ANIMAL_SPRITE_PATH+'/Deer/Deer_Walk.png'),
+        run:  loadImg(ANIMAL_SPRITE_PATH+'/Deer/Deer_Run.png'),
+        hurt: loadImg(ANIMAL_SPRITE_PATH+'/Deer/Deer_Hurt.png'),
+        death:loadImg(ANIMAL_SPRITE_PATH+'/Deer/Deer_Death.png')
+    };
+    SC.animal_javali={
+        idle:   loadImg(ANIMAL_SPRITE_PATH+'/Boar/Boar_Idle.png'),
+        walk:   loadImg(ANIMAL_SPRITE_PATH+'/Boar/Boar_Walk.png'),
+        run:    loadImg(ANIMAL_SPRITE_PATH+'/Boar/Boar_Run.png'),
+        attack: loadImg(ANIMAL_SPRITE_PATH+'/Boar/Boar_Attack.png'),
+        hurt:   loadImg(ANIMAL_SPRITE_PATH+'/Boar/Boar_Hurt.png'),
+        death:  loadImg(ANIMAL_SPRITE_PATH+'/Boar/Boar_Death.png')
+    };
+    SC.animal_coelho={
+        idle: loadImg(ANIMAL_SPRITE_PATH+'/Hare/Hare_Idle.png'),
+        walk: loadImg(ANIMAL_SPRITE_PATH+'/Hare/Hare_Walk.png'),
+        run:  loadImg(ANIMAL_SPRITE_PATH+'/Hare/Hare_Run.png'),
+        hurt: loadImg(ANIMAL_SPRITE_PATH+'/Hare/Hare_Hurt.png'),
+        death:loadImg(ANIMAL_SPRITE_PATH+'/Hare/Hare_Death.png')
+    };
+    SC.animal_lobo={
+        idle: loadImg(ANIMAL_SPRITE_PATH+'/Fox/Fox_Idle.png'),
+        walk: loadImg(ANIMAL_SPRITE_PATH+'/Fox/Fox_walk.png'),
+        run:  loadImg(ANIMAL_SPRITE_PATH+'/Fox/Fox_Run.png'),
+        hurt: loadImg(ANIMAL_SPRITE_PATH+'/Fox/Fox_Hurt.png'),
+        death:loadImg(ANIMAL_SPRITE_PATH+'/Fox/Fox_Death.png')
+    };
+    // ─── Sprite do Caçador ───
+    SC.cacador=loadImg('sprites/caçador/caçador.png');
 
     // ─── Sprites Vampiros ───
     SC.vamp_castle=mkCanvas(TILE*3,TILE*3,(c)=>{
@@ -1291,6 +1342,327 @@ class EnemyUnit extends Entity{
     }
 }
 
+// ═══════════════════════════════════════════════════════════
+// CLASSE ANIMAL
+// ═══════════════════════════════════════════════════════════
+class Animal{
+    constructor(x,y,type){
+        this.x=x;this.y=y;this.type=type;
+        let def=ANIM_DEF[type];
+        this.name=def.name;
+        this.hp=def.hp;this.maxHp=def.hp;
+        this.food=def.food;
+        this.speed=def.spd;
+        this.aggressive=def.aggressive||false;
+        this.atk=def.atk||0;
+        this.alive=true;
+        this.state='idle';
+        this.dir=0;
+        this.animState='idle';this.animFrame=0;this.animTimer=0;
+        this.ftimer=0;this.frame=0;
+        this.flashTimer=0;
+        this.attackTimer=0;
+        this.wanderTimer=rand(1,4);
+        this.wanderTarget=null;
+        this.targetHunter=null;
+        this.deathTimer=0; // show death anim briefly
+    }
+    takeDamage(dmg){
+        this.hp-=dmg;
+        this.flashTimer=0.1;
+        if(this.hp<=0){this.hp=0;this.alive=false;this.deathTimer=0.8}
+        addParticle(this.x,this.y-12,'-'+dmg,'#FF4444');
+    }
+    update(dt){
+        // Update animation
+        this.ftimer+=dt;
+        if(this.ftimer>0.18){this.ftimer=0;this.frame=(this.frame+1)%4}
+        this.animTimer+=dt;
+        let aspd=this.animState==='attack'?0.09:0.13;
+        if(this.animTimer>=aspd){this.animTimer=0;this.animFrame++;let mf=ANIM_FRAMES[this.animState]||6;if(this.animFrame>=mf)this.animFrame=0}
+        if(this.flashTimer>0) this.flashTimer-=dt;
+
+        if(!this.alive) return;
+
+        // Aggressive animals attack nearby hunters
+        if(this.aggressive){
+            let near=null,md=TILE*5;
+            for(let u of gs.units){
+                if(!u.alive||u.type!=='HUNTER')continue;
+                let d=dist(this.x,this.y,u.x,u.y);
+                if(d<md){md=d;near=u}
+            }
+            this.targetHunter=near;
+        }
+
+        if(this.targetHunter&&this.targetHunter.alive){
+            let d=dist(this.x,this.y,this.targetHunter.x,this.targetHunter.y);
+            if(d<=TILE*1.2){
+                this.animState='attack';
+                this.attackTimer-=dt;
+                if(this.attackTimer<=0){
+                    this.targetHunter.takeDamage(this.atk);
+                    this.attackTimer=1.5;
+                }
+            } else {
+                let dx=this.targetHunter.x-this.x,dy=this.targetHunter.y-this.y,len=Math.sqrt(dx*dx+dy*dy);
+                this.x+=(dx/len)*this.speed*TILE*dt;
+                this.y+=(dy/len)*this.speed*TILE*dt;
+                if(Math.abs(dx)>Math.abs(dy))this.dir=dx>0?3:2;else this.dir=dy>0?0:1;
+                this.animState='walk';
+            }
+        } else {
+            // Wander
+            this.wanderTimer-=dt;
+            if(this.wanderTimer<=0){
+                this.wanderTimer=rand(3,8);
+                let tx=this.x+rand(-TILE*4,TILE*4);
+                let ty=this.y+rand(-TILE*4,TILE*4);
+                tx=clamp(tx,TILE,( MAP_W-1)*TILE);
+                ty=clamp(ty,TILE,(MAP_H-1)*TILE);
+                let t=w2t(tx,ty);
+                if(t.x>=0&&t.x<MAP_W&&t.y>=0&&t.y<MAP_H){
+                    let ter=gs.map[t.y][t.x];
+                    if(ter!==T.WATER&&ter!==T.MOUNTAIN) this.wanderTarget={x:tx,y:ty};
+                }
+            }
+            if(this.wanderTarget){
+                let dx=this.wanderTarget.x-this.x,dy=this.wanderTarget.y-this.y,d=Math.sqrt(dx*dx+dy*dy);
+                if(d>8){
+                    let nx=this.x+(dx/d)*this.speed*TILE*dt;
+                    let ny=this.y+(dy/d)*this.speed*TILE*dt;
+                    let t=w2t(nx,ny);
+                    if(t.x>=0&&t.x<MAP_W&&t.y>=0&&t.y<MAP_H){
+                        let ter=gs.map[t.y][t.x];
+                        if(ter!==T.MOUNTAIN&&ter!==T.WATER){this.x=nx;this.y=ny}
+                    }
+                    if(Math.abs(dx)>Math.abs(dy))this.dir=dx>0?3:2;else this.dir=dy>0?0:1;
+                    this.animState='walk';
+                } else {this.wanderTarget=null;this.animState='idle'}
+            } else {this.animState='idle'}
+        }
+    }
+    draw(){
+        let sx=this.x-gs.camera.x,sy=this.y-gs.camera.y;
+        let sz=TILE+4;
+        let sheetKey='animal_'+this.type;
+        let sheet=SC[sheetKey];
+        let animKey=this.alive?this.animState:(this.deathTimer>0?'death':'idle');
+        if(this.flashTimer>0)ctx.globalAlpha=0.5+(Math.sin(gs.gameTime*40)*0.5);
+        // Draw using spritesheet or fallback colored rect
+        if(!drawCharSheet(sheet,animKey,this.dir,this.animFrame,sx-sz/2,sy-sz/2,sz)){
+            let def=ANIM_DEF[this.type];
+            ctx.fillStyle=this.alive?def.color:'#555';
+            if(this.flashTimer>0)ctx.fillStyle='#FFF';
+            ctx.fillRect(sx-10,sy-10,20,20);
+            ctx.fillStyle='#FFF';ctx.font='9px monospace';ctx.textAlign='center';
+            ctx.fillText(def.icon||def.name[0],sx,sy+4);
+            ctx.textAlign='left';
+        }
+        ctx.globalAlpha=1;
+        if(this.alive) drawHP(sx-TILE/2,sy-TILE/2-8,TILE,3,this.hp,this.maxHp);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CLASSE CAÇADOR (HUNTER)
+// ═══════════════════════════════════════════════════════════
+class Hunter extends Entity{
+    constructor(x,y){
+        super(x,y);
+        let d=UDEF.HUNTER;
+        this.type='HUNTER';this.name=d.name;
+        this.hp=d.hp;this.maxHp=d.hp;
+        this.atk=d.atk;this.def=d.def;this.speed=d.spd;
+        this.range=d.range;
+        this.selected=false;
+        this.state='searching'; // searching, pursuing, attacking, collecting, returning, delivering
+        this.targetAnimal=null;
+        this.targetCorpse=null;
+        this.moveTarget=null;
+        this.attackTimer=0;
+        this.collectTimer=0;
+        this.carrying=0; // food being carried
+    }
+    update(dt){
+        super.update(dt);
+        this.attackTimer-=dt;
+
+        // State machine
+        switch(this.state){
+        case 'searching':{
+            // Find nearest living animal
+            let best=null,bd=Infinity;
+            for(let a of gs.animals){
+                if(!a.alive)continue;
+                let d=dist(this.x,this.y,a.x,a.y);
+                if(d<bd){bd=d;best=a}
+            }
+            if(best){this.targetAnimal=best;this.state='pursuing';this.moveTarget=null}
+            else{
+                // Wander if no animals found
+                if(!this.moveTarget){
+                    let tx=this.x+rand(-TILE*6,TILE*6);
+                    let ty=this.y+rand(-TILE*6,TILE*6);
+                    tx=clamp(tx,TILE,(MAP_W-1)*TILE);ty=clamp(ty,TILE,(MAP_H-1)*TILE);
+                    let t=w2t(tx,ty);
+                    if(t.x>=0&&t.x<MAP_W&&t.y>=0&&t.y<MAP_H&&gs.map[t.y][t.x]!==T.WATER&&gs.map[t.y][t.x]!==T.MOUNTAIN)
+                        this.moveTarget={x:tx,y:ty};
+                }
+            }
+            break;
+        }
+        case 'pursuing':{
+            if(!this.targetAnimal||!this.targetAnimal.alive){
+                // Check for a collectible corpse
+                let corp=null,cd=Infinity;
+                for(let a of gs.animals){
+                    if(a.alive)continue;
+                    if(a.food<=0)continue;
+                    let d=dist(this.x,this.y,a.x,a.y);
+                    if(d<cd){cd=d;corp=a}
+                }
+                if(corp){this.targetCorpse=corp;this.state='collecting';this.moveTarget=null;break}
+                this.targetAnimal=null;this.state='searching';this.moveTarget=null;break;
+            }
+            let d=dist(this.x,this.y,this.targetAnimal.x,this.targetAnimal.y);
+            if(d<=this.range*TILE){this.state='attacking';this.moveTarget=null}
+            else{this.moveTarget={x:this.targetAnimal.x,y:this.targetAnimal.y}}
+            break;
+        }
+        case 'attacking':{
+            if(!this.targetAnimal||!this.targetAnimal.alive){
+                // Animal died - go collect
+                let corp=null,cd=Infinity;
+                for(let a of gs.animals){
+                    if(a.alive)continue;if(a.food<=0)continue;
+                    let d=dist(this.x,this.y,a.x,a.y);
+                    if(d<cd){cd=d;corp=a}
+                }
+                if(corp){this.targetCorpse=corp;this.state='collecting';this.moveTarget=null;break}
+                this.targetAnimal=null;this.state='searching';break;
+            }
+            let d=dist(this.x,this.y,this.targetAnimal.x,this.targetAnimal.y);
+            if(d>this.range*TILE){this.state='pursuing';break}
+            // Fire arrow
+            if(this.attackTimer<=0){
+                let dmg=Math.max(1,Math.floor(this.atk*getCombatMultiplier()));
+                this.targetAnimal.takeDamage(dmg);
+                this.attackTimer=1.0;
+                gs.projectiles.push({x:this.x,y:this.y-8,tx:this.targetAnimal.x,ty:this.targetAnimal.y-8,timer:0.35,color:'#8BC34A'});
+                this.animState='attack';
+            }
+            break;
+        }
+        case 'collecting':{
+            if(!this.targetCorpse||this.targetCorpse.food<=0){this.state='searching';this.targetCorpse=null;break}
+            let d=dist(this.x,this.y,this.targetCorpse.x,this.targetCorpse.y);
+            if(d<=TILE*1.5){
+                this.collectTimer-=dt;
+                if(this.collectTimer<=0){
+                    this.carrying+=this.targetCorpse.food;
+                    addParticle(this.x,this.y-16,'+'+this.targetCorpse.food+' 🍖','#FF9944');
+                    this.targetCorpse.food=0;
+                    this.targetCorpse=null;
+                    this.state='returning';
+                    this.moveTarget=null;
+                }
+            } else {
+                this.moveTarget={x:this.targetCorpse.x,y:this.targetCorpse.y};
+                this.collectTimer=0.8;
+            }
+            break;
+        }
+        case 'returning':{
+            // Find nearest castle or city building
+            let dest=null,dd=Infinity;
+            for(let b of gs.buildings){
+                if(b.hp<=0)continue;
+                if(b.type==='CASTLE'||b.type==='FARM'||b.type==='HOUSE'||b.type==='HOUSE_MED'||b.type==='HOUSE_BIG'){
+                    let bx=(b.x+b.def.w/2)*TILE,by=(b.y+b.def.h/2)*TILE;
+                    let d=dist(this.x,this.y,bx,by);
+                    if(d<dd){dd=d;dest={x:bx,y:by}}
+                }
+            }
+            if(!dest){this.state='searching';break}
+            this.moveTarget=dest;
+            if(dd<=TILE*2){this.state='delivering'}
+            break;
+        }
+        case 'delivering':{
+            gs.resources.food+=this.carrying;
+            addParticle(this.x,this.y-16,'+'+this.carrying+' comida','#2ecc71');
+            addMessage('[+] Caçador trouxe '+this.carrying+' comida!');
+            this.carrying=0;
+            this.state='searching';this.moveTarget=null;
+            break;
+        }
+        }
+
+        // Movement
+        let moving=false;
+        if(this.moveTarget&&this.state!=='delivering'){
+            let dx=this.moveTarget.x-this.x,dy=this.moveTarget.y-this.y;
+            let d=Math.sqrt(dx*dx+dy*dy);
+            if(d>8){
+                moving=true;
+                let nx=this.x+(dx/d)*this.speed*TILE*dt;
+                let ny=this.y+(dy/d)*this.speed*TILE*dt;
+                let t=w2t(nx,ny);
+                if(t.x>=0&&t.x<MAP_W&&t.y>=0&&t.y<MAP_H){
+                    let ter=gs.map[t.y][t.x];
+                    if(ter!==T.MOUNTAIN){this.x=nx;this.y=ny}
+                }
+                if(Math.abs(dx)>Math.abs(dy))this.dir=dx>0?3:2;
+                else this.dir=dy>0?0:1;
+            } else {this.moveTarget=null}
+        }
+
+        if(this.state==='attacking')this.animState='attack';
+        else if(moving)this.animState='walk';
+        else this.animState='idle';
+    }
+    draw(){
+        let sx=this.x-gs.camera.x,sy=this.y-gs.camera.y;
+        let sz=TILE+4;
+        // Try custom hunter sprite first, fallback to archer sheet
+        if(this.flashTimer>0)ctx.globalAlpha=0.5+(Math.sin(gs.gameTime*40)*0.5);
+        let drawn=false;
+        // Attempt custom spritesheet
+        if(SC.cacador&&SC.cacador.complete&&SC.cacador.naturalWidth){
+            let fw=SC.cacador.naturalWidth,fh=SC.cacador.naturalHeight;
+            let fcols=Math.max(1,Math.floor(fw/CHAR_FW));
+            let frows=Math.max(1,Math.floor(fh/CHAR_FH));
+            if(fcols>1||frows>1){
+                let f=this.animFrame%fcols;
+                let row=frows>1?(DIR_TO_ROW[this.dir]||0):0;
+                if(row<frows) ctx.drawImage(SC.cacador,f*CHAR_FW,row*CHAR_FH,CHAR_FW,CHAR_FH,sx-sz/2,sy-sz/2,sz,sz);
+                else ctx.drawImage(SC.cacador,f*CHAR_FW,0,CHAR_FW,CHAR_FH,sx-sz/2,sy-sz/2,sz,sz);
+                drawn=true;
+            } else {
+                // Single image - draw directly
+                ctx.drawImage(SC.cacador,sx-sz/2,sy-sz/2,sz,sz);
+                drawn=true;
+            }
+        }
+        if(!drawn){
+            let sheet=SC[UNIT_SHEET_MAP['ARCHER']];
+            drawCharSheet(sheet,this.animState,this.dir,this.animFrame,sx-sz/2,sy-sz/2,sz);
+        }
+        ctx.globalAlpha=1;
+        // Carry indicator
+        if(this.carrying>0){
+            ctx.fillStyle='#FF9944';ctx.font='bold 10px monospace';ctx.textAlign='center';
+            ctx.fillText('🍖'+this.carrying,sx,sy-TILE/2-12);ctx.textAlign='left';
+        }
+        if(this.selected){
+            ctx.strokeStyle='#0F0';ctx.lineWidth=2;
+            ctx.strokeRect(sx-sz/2-2,sy-sz/2-2,sz+4,sz+4);
+        }
+        drawHP(sx-TILE/2,sy-TILE/2-8,TILE,4,this.hp,this.maxHp);
+    }
+}
+
 class Building{
     constructor(x,y,type){
         this.x=x;this.y=y;this.type=type;this.def=BUILD[type]||VAMP_BUILD[type]||{w:1,h:1,hp:100,icon:'?',cost:{gold:0},popCap:0,workers:0};
@@ -1505,7 +1877,11 @@ function recruitUnit(type){
     spend(def.cost);
     let ux=bar.x*TILE+bar.def.w*TILE+TILE+rand(-10,10);
     let uy=bar.y*TILE+TILE+rand(-10,10);
-    gs.units.push(new PlayerUnit(ux,uy,type));
+    if(type==='HUNTER'){
+        gs.units.push(new Hunter(ux,uy));
+    } else {
+        gs.units.push(new PlayerUnit(ux,uy,type));
+    }
     addMessage('[+] '+def.name+' recrutado!');
 }
 
@@ -1917,14 +2293,16 @@ function initResourceNodes(){
 
 function unitsToArmy(units,targetOwner){
     if(!units.length) return;
+    let validUnits=units.filter(u=>u.type!=='HUNTER');
+    if(!validUnits.length) return;
     let comp={SWORDSMAN:0,ARCHER:0,SPEARMAN:0};
     let mx=0,my=0;
-    for(let u of units){comp[u.type]=(comp[u.type]||0)+1;mx+=u.x;my+=u.y;}
-    mx/=units.length;my/=units.length;
+    for(let u of validUnits){comp[u.type]=(comp[u.type]||0)+1;mx+=u.x;my+=u.y;}
+    mx/=validUnits.length;my/=validUnits.length;
     let from=worldToTerr(mx,my);
     let to=targetOwner||from;
     spawnArmy(OWNER.PLAYER,comp,{x:from.x,y:from.y},{x:to.x,y:to.y});
-    gs.units=gs.units.filter(u=>!units.includes(u));
+    gs.units=gs.units.filter(u=>!validUnits.includes(u));
     gs.selectedUnits=[];
     addMessage('[+] Exército do jogador mobilizado!');
 }
@@ -2050,7 +2428,10 @@ function loadGame(){
         gs.resources={gold:data.resources.gold||0,food:data.resources.food||0,wood:data.resources.wood||0,stone:data.resources.stone||0};
         gs.upgrades=data.upgrades||{forge:0,masonry:0};
         gs.buildings=data.buildings.map(b=>{let nb=new Building(b.x,b.y,b.type);nb.maxHp=b.maxHp||nb.maxHp;nb.hp=b.hp;return nb});
-        gs.units=data.units.map(u=>{let nu=new PlayerUnit(u.x,u.y,u.type);nu.hp=u.hp;return nu});
+        gs.units=data.units.map(u=>{
+            if(u.type==='HUNTER'){let h=new Hunter(u.x,u.y);h.hp=u.hp;return h}
+            let nu=new PlayerUnit(u.x,u.y,u.type);nu.hp=u.hp;return nu
+        });
         gs.king.x=data.king.x;gs.king.y=data.king.y;gs.king.hp=data.king.hp;gs.king.alive=true;
         gs.waveNumber=data.waveNumber;gs.waveTimer=data.waveTimer;gs.gameTime=data.gameTime;
         gs.population=data.population||4;gs.hunger=data.hunger||0;gs.hungerTimer=data.hungerTimer||0;
@@ -2069,6 +2450,7 @@ function loadGame(){
         gs.selectedBuilding=null;gs.selectedBuildings=[];gs.moveMode=false;gs.movingBuilding=null;gs.moveSelectionMode=false;
         gs.selectedArmies=[];gs.movingBuildings=[];
         gs.showBuildingMenu=false;gs.showBuildMenu=false;gs.showRecruitMenu=false;gs.showDiplomacy=false;
+        gs.animals=[];gs.animalRespawnQueue=[];gs.animalSpawnTimer=0;initAnimals();
         addMessage('[+] Jogo carregado com sucesso!');
     }catch(er){addMessage('[x] Erro ao carregar: '+er.message)}
 }
@@ -2157,6 +2539,65 @@ function spawnWave(){
     let vampMsg=gs.isNight?' (com vampiros!)':'';
     addMessage('[!] Onda '+gs.waveNumber+': '+count+' inimigos se aproximam!'+vampMsg);
     gs.screenShake=0.5;
+}
+
+// ═══════════════════════════════════════════════════════════
+// SISTEMA DE CAÇA - ANIMAIS
+// ═══════════════════════════════════════════════════════════
+function spawnAnimal(type,cx,cy){
+    // Find a suitable forest/grass tile away from city center
+    let attempts=0,x,y;
+    let mapCX=Math.floor(MAP_W/2),mapCY=Math.floor(MAP_H/2);
+    do {
+        let tx=cx||randInt(5,MAP_W-5),ty=cy||randInt(5,MAP_H-5);
+        let ter=gs.map[ty][tx];
+        // Prefer forest/grass/field far from city center
+        let distFromCenter=dist(tx,ty,mapCX,mapCY);
+        if((ter===T.FOREST||ter===T.GRASS||ter===T.FIELD)&&distFromCenter>12){
+            x=tx*TILE+rand(-8,8);y=ty*TILE+rand(-8,8);break;
+        }
+        attempts++;
+    } while(attempts<100);
+    if(x!==undefined) gs.animals.push(new Animal(x,y,type||ANIMAL_TYPES[randInt(0,ANIMAL_TYPES.length-1)]));
+}
+
+function initAnimals(){
+    // Spawn initial animals distributed around the map
+    let counts={cervo:6,javali:4,coelho:8,lobo:3};
+    for(let type in counts){
+        for(let i=0;i<counts[type];i++) spawnAnimal(type);
+    }
+}
+
+function updateAnimals(dt){
+    // Update all animals
+    for(let i=gs.animals.length-1;i>=0;i--){
+        let a=gs.animals[i];
+        a.update(dt);
+        // Handle dead animals: show death anim briefly, then queue respawn
+        if(!a.alive){
+            a.deathTimer-=dt;
+            if(a.deathTimer<=0){
+                // Queue respawn after 2-4 minutes
+                gs.animalRespawnQueue.push({type:a.type,timer:rand(120,240)});
+                gs.animals.splice(i,1);
+            }
+        }
+    }
+    // Respawn queued animals
+    for(let i=gs.animalRespawnQueue.length-1;i>=0;i--){
+        gs.animalRespawnQueue[i].timer-=dt;
+        if(gs.animalRespawnQueue[i].timer<=0){
+            spawnAnimal(gs.animalRespawnQueue[i].type);
+            gs.animalRespawnQueue.splice(i,1);
+        }
+    }
+    // Periodic spawn to keep map populated (max 30 animals)
+    gs.animalSpawnTimer+=dt;
+    if(gs.animalSpawnTimer>=60&&gs.animals.filter(a=>a.alive).length<30){
+        gs.animalSpawnTimer=0;
+        spawnAnimal(ANIMAL_TYPES[randInt(0,ANIMAL_TYPES.length-1)]);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2624,6 +3065,8 @@ function renderEntities(){
     for(let u of gs.units)if(u.alive)all.push(u);
     for(let e of gs.enemies)if(e.alive)all.push(e);
     if(gs.king&&gs.king.alive) all.push(gs.king);
+    // Include animals (living and briefly-dead for death anim)
+    for(let a of gs.animals)if(a.alive||a.deathTimer>0)all.push(a);
     all.sort((a,b)=>a.y-b.y);
     for(let e of all) e.draw();
 
@@ -3009,6 +3452,8 @@ function renderUI(){
     // Unidades
     for(let u of gs.units){if(!u.alive)continue;ctx.fillStyle='#0F0';ctx.fillRect(mmX+(u.x/TILE)*mtw,mmY+(u.y/TILE)*mth,2,2)}
     for(let e of gs.enemies){if(!e.alive)continue;ctx.fillStyle='#F00';ctx.fillRect(mmX+(e.x/TILE)*mtw,mmY+(e.y/TILE)*mth,2,2)}
+    // Animais no minimapa
+    for(let a of gs.animals){if(!a.alive)continue;ctx.fillStyle='#CC8844';ctx.fillRect(mmX+(a.x/TILE)*mtw,mmY+(a.y/TILE)*mth,2,2)}
     for(let a of gs.armies){
         ctx.fillStyle=a.owner===OWNER.PLAYER?'#4FC3F7':a.owner===OWNER.ENEMY_A?'#F06262':a.owner===OWNER.VAMPIRES?'#CC0000':'#BA68C8';
         ctx.fillRect(mmX+(a.x/TILE)*mtw-1,mmY+(a.y/TILE)*mth-1,3,3);
@@ -3304,6 +3749,7 @@ function gameLoop(timestamp){
         updateArmies(dt);
         updateDayNight(dt);
         updateRandomEvents(dt);
+        updateAnimals(dt);
 
         // Efeitos
         updateEffects(dt);
@@ -3400,6 +3846,7 @@ function init(){
     initDiplomacy();
     initRuins();
     initVampireStructures();
+    initAnimals();
 
     let cx=Math.floor(MAP_W/2)-1,cy=Math.floor(MAP_H/2)-1;
 
