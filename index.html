@@ -1,0 +1,3390 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Reino Medieval - Pixel Art Strategy</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a1a;overflow:hidden;font-family:monospace}
+canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════
+// CONFIGURAÇÃO
+// ═══════════════════════════════════════════════════════════
+const TILE = 32;
+const MAP_W = 120;
+const MAP_H = 120;
+const PX = 2;
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, COLS, ROWS;
+
+function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    COLS = Math.ceil(W / TILE) + 2;
+    ROWS = Math.ceil(H / TILE) + 2;
+    if(globalThis.__gameState&&globalThis.__gameState.camera){clampCamera();updateMouseWorld()}
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ═══════════════════════════════════════════════════════════
+// TIPOS DE TERRENO
+// ═══════════════════════════════════════════════════════════
+const T = { GRASS:0, FOREST:1, WATER:2, ROAD:3, FIELD:4, MOUNTAIN:5, SAND:6 };
+const TERRAIN_COLORS = {
+    [T.GRASS]:    ['#4a8c3f','#3d7a34','#5a9c4f'],
+    [T.FOREST]:   ['#2d5a1e','#1e4a12','#3d6a2e'],
+    [T.WATER]:    ['#2980b9','#2471a3','#3498db'],
+    [T.ROAD]:     ['#8B7355','#7B6345','#9B8365'],
+    [T.FIELD]:    ['#c9b458','#b9a448','#d9c468'],
+    [T.MOUNTAIN]: ['#707070','#606060','#808080'],
+    [T.SAND]:     ['#e8d68a','#d8c67a','#ddd080']
+};
+
+// ═══════════════════════════════════════════════════════════
+// DEFINIÇÕES DE CONSTRUÇÕES
+// ═══════════════════════════════════════════════════════════
+const BUILD = {
+    CASTLE:   {id:'CASTLE',  name:'Castelo',      w:3,h:3, cost:{gold:0,wood:0,food:0},      hp:500, icon:'castle', popCap:0, workers:0},
+    HOUSE:    {id:'HOUSE',   name:'Casa Peq.',    w:1,h:1, cost:{gold:50,wood:30,food:0},    hp:100, produces:{gold:2}, icon:'house', popCap:4, workers:0},
+    HOUSE_MED:{id:'HOUSE_MED',name:'Casa Média',  w:1,h:1, cost:{gold:90,wood:55,food:0},    hp:160, produces:{gold:3}, icon:'house_med', popCap:8, workers:0},
+    HOUSE_BIG:{id:'HOUSE_BIG',name:'Casa Grande',  w:2,h:2, cost:{gold:160,wood:90,food:0},   hp:240, produces:{gold:5}, icon:'house_big', popCap:12, workers:0},
+    BARRACKS: {id:'BARRACKS',name:'Quartel',      w:2,h:2, cost:{gold:100,wood:50,food:0},   hp:200, icon:'barracks', popCap:0, workers:2},
+    FARM:     {id:'FARM',    name:'Fazenda',      w:2,h:2, cost:{gold:30,wood:20,food:0},    hp:80,  produces:{food:5}, icon:'farm', popCap:0, workers:3},
+    WALL:     {id:'WALL',    name:'Muro',         w:1,h:1, cost:{gold:10,wood:20,food:0},    hp:300, icon:'wall', popCap:0, workers:0},
+    TOWER:    {id:'TOWER',   name:'Torre',        w:1,h:1, cost:{gold:80,wood:40,food:0},    hp:250, attack:15, range:6, icon:'tower', popCap:0, workers:1},
+    LUMBER:   {id:'LUMBER',  name:'Serraria',     w:1,h:1, cost:{gold:40,wood:10,food:0},    hp:100, produces:{wood:3}, icon:'lumber', popCap:0, workers:2},
+    QUARRY:   {id:'QUARRY',  name:'Pedreira',     w:1,h:1, cost:{gold:60,wood:25,food:0},    hp:130, produces:{stone:2}, icon:'quarry', popCap:0, workers:3, needsRock:true},
+    FISHING:  {id:'FISHING', name:'Porto Pesca',  w:1,h:1, cost:{gold:35,wood:25,food:0},    hp:80,  produces:{food:3}, icon:'fishing', popCap:0, workers:2, needsWater:true}
+};
+const BUILD_LIST = ['HOUSE','HOUSE_MED','HOUSE_BIG','FARM','FISHING','LUMBER','QUARRY','BARRACKS','WALL','TOWER'];
+
+// ═══════════════════════════════════════════════════════════
+// DEFINIÇÕES DE UNIDADES
+// ═══════════════════════════════════════════════════════════
+const UDEF = {
+    SWORDSMAN:{id:'SWORDSMAN',name:'Espadachim',cost:{gold:40,food:20,pop:1}, hp:80, atk:12,def:8, spd:1.5,range:1.2,icon:'swords'},
+    ARCHER:   {id:'ARCHER',   name:'Arqueiro',  cost:{gold:50,food:15,pop:1}, hp:50, atk:15,def:4, spd:1.8,range:5,  icon:'bow'},
+    SPEARMAN: {id:'SPEARMAN', name:'Lanceiro',  cost:{gold:35,food:25,pop:1}, hp:70, atk:10,def:10,spd:1.3,range:1.5,icon:'spear'}
+};
+const UNIT_LIST = ['SWORDSMAN','ARCHER','SPEARMAN'];
+const ENEMY_SPRITE_MAP = {soldier:'enemy',bandit:'bandit',creature:'creature'};
+
+// Territorios e reinos
+const TERR_TILE = 8;
+const TERR_W = Math.ceil(MAP_W / TERR_TILE);
+const TERR_H = Math.ceil(MAP_H / TERR_TILE);
+const OWNER = {NEUTRAL:0, PLAYER:1, ENEMY_A:2, ENEMY_B:3, VAMPIRES:4};
+const OWNER_COLOR = {
+    [OWNER.NEUTRAL]:'rgba(180,180,180,0.14)',
+    [OWNER.PLAYER]:'rgba(70,170,255,0.16)',
+    [OWNER.ENEMY_A]:'rgba(240,90,90,0.16)',
+    [OWNER.ENEMY_B]:'rgba(220,120,240,0.16)',
+    [OWNER.VAMPIRES]:'rgba(140,0,0,0.22)'
+};
+const OWNER_NAMES = {
+    [OWNER.PLAYER]:'Reino Humano',
+    [OWNER.ENEMY_A]:'Reino dos Bárbaros',
+    [OWNER.ENEMY_B]:'Reino dos Magos',
+    [OWNER.VAMPIRES]:'Reino dos Vampiros'
+};
+
+// Spritesheet config
+const CHAR_FW=64,CHAR_FH=64;
+const ANIM_FRAMES={idle:12,walk:6,attack:8,run:8,death:7,hurt:5};
+const DIR_TO_ROW=[0,3,1,2]; // game dir 0=down,1=up,2=left,3=right → spritesheet row
+const ORC_DIR_TO_ROW=[3,0,1,2]; // orc sheets have vertical rows inverted relative to the swordsman sheets
+const CHAR_PATH='sprites/craftpix-net-180537-free-swordsman-1-3-level-pixel-top-down-sprite-character/PNG';
+const ORC_PATH='sprites/craftpix-net-363992-free-top-down-orc-game-character-pixel-art/PNG';
+const TREE_IMG_PATH='sprites/craftpix-net-385863-free-top-down-trees-pixel-art/PNG/Assets_separately/Trees';
+const ROCK_IMG_PATH='sprites/craftpix-net-974061-free-rocks-and-stones-top-down-pixel-art/PNG/Objects_separately';
+const RUIN_IMG_PATH='sprites/craftpix-net-934618-free-top-down-ruins-pixel-art/PNG/Assets';
+const UNIT_SHEET_MAP={SWORDSMAN:'char_lvl1',ARCHER:'char_lvl2',SPEARMAN:'char_lvl3'};
+const ENEMY_SHEET_MAP={soldier:'orc1',bandit:'orc2',creature:'orc3'};
+const VAMP_STATS={
+    vamp_warrior:{name:'Vampiro Guerreiro',hp:75,atk:14,def:6,spd:2.0,range:1.3,lifeSteal:0.25,loot:{gold:25,food:0}},
+    vamp_lord:{name:'Vampiro Lorde',hp:150,atk:20,def:12,spd:1.2,range:1.5,auraRange:5,auraBonus:0.2,loot:{gold:50,food:0}},
+    giant_bat:{name:'Morcego Gigante',hp:35,atk:8,def:2,spd:3.0,range:1.0,flying:true,loot:{gold:15,food:0}}
+};
+const DAY_CYCLE=180;
+const DIPLO={WAR:'war',NEUTRAL:'neutral',PEACE:'peace',ALLIANCE:'alliance'};
+const GUIDE_ENTRIES=[
+    {title:'Como construir', keywords:'construir casa fazenda quartel muro torre serraria pesca build', body:'Aperte B para abrir o menu de construcoes. Use as teclas numericas para escolher uma estrutura e clique no mapa dentro do seu territorio para construir.'},
+    {title:'Como recrutar tropas', keywords:'recrutar tropas quartel espadachim arqueiro lanceiro soldado', body:'Construa um Quartel, aperte R e escolha a unidade. Recrutar consome ouro, comida e populacao livre.'},
+    {title:'Como conquistar territorio', keywords:'territorio conquistar expandir exercito guerra ataque', body:'Selecione tropas, aperte G para formar um exercito, depois selecione o exercito e clique com o botao direito em um territorio neutro ou inimigo.'},
+    {title:'Como mover a camera', keywords:'camera mover arrastar zoom scroll mouse', body:'Use o scroll para aproximar e afastar. Segure o botao do meio do mouse e arraste para deslocar a camera em relacao ao rei.'},
+    {title:'Como mover construcoes', keywords:'mover construcoes arrastar muro parede reposicionar', body:'Clique e arraste uma construcao para reposiciona-la. Muros tambem podem ser selecionados em grupo e movidos com M.'},
+    {title:'Como evitar fome', keywords:'fome comida fazenda pesca trabalhadores', body:'Construa Fazendas e Portos de Pesca. Garanta trabalhadores livres e estoque de comida para evitar queda de produtividade e mortes.'},
+    {title:'Como aumentar populacao', keywords:'populacao casas moradores crescimento', body:'Construa Casas Pequenas, Medias e Grandes para aumentar o limite populacional. A populacao cresce so se houver espaco e comida.'},
+    {title:'Pedra e mineracao', keywords:'pedra mineradores pedreira rocha upgrade muralha espada', body:'Construa Pedreiras perto de rochas para minerar pedra. Use [U] para forjar espadas melhores e [J] para reforcar muralhas com pedra.'},
+    {title:'Reino dos Vampiros', keywords:'vampiro vampiros reino noturno morcego covil cemiterio', body:'O Reino dos Vampiros ocupa o nordeste do mapa. Vampiros ficam mais fortes a noite e mais fracos de dia. Destrua o Castelo Vampiro para conquistar o territorio.'},
+    {title:'Diplomacia entre reinos', keywords:'diplomacia guerra paz alianca reino declarar neutro', body:'Pressione [N] para abrir o painel diplomatico. Voce pode declarar guerra, fazer alianca ou estabelecer paz com outros reinos. Cada reino possui territorio, exercito e economia propria.'},
+    {title:'Ciclo dia e noite', keywords:'dia noite ciclo vampiro noturno sol lua', body:'O mundo alterna entre dia e noite. A noite, vampiros ficam mais fortes e rapidos. De dia, ficam mais fracos. Observe o indicador no topo da tela.'},
+    {title:'Eventos aleatorios', keywords:'evento ataque noturno invasao surpresa', body:'Eventos aleatorios podem ocorrer: ataques noturnos de vampiros, invasoes surpresa e guerras entre reinos inimigos. Fique preparado!'}
+];
+
+// ═══════════════════════════════════════════════════════════
+// ESTADO DO JOGO
+// ═══════════════════════════════════════════════════════════
+const gs = {
+    phase: 'menu', // menu, playing, gameover
+    resources: {gold:200, food:100, wood:150, stone:40},
+    buildings: [],
+    units: [],
+    enemies: [],
+    particles: [],
+    projectiles: [],
+    explosions: [],
+    map: [],
+    camera: {x:0,y:0},
+    king: null,
+    selectedUnits: [],
+    buildMode: null,
+    gameTime: 0,
+    waveTimer: 0,
+    waveNumber: 0,
+    paused: false,
+    messages: [],
+    resourceTimer: 0,
+    showBuildMenu: false,
+    showRecruitMenu: false,
+    screenShake: 0,
+    selectedBuilding: null,
+    selectedBuildings: [],
+    moveMode: false,
+    movingBuilding: null,
+    moveSelectionMode: false,
+    movingBuildings: [],
+    showBuildingMenu: false,
+    territories: [],
+    territoryTimer: 0,
+    kingdoms: [],
+    armies: [],
+    selectedArmies: [],
+    aiTimer: 0,
+    population: 4,
+    popCap: 0,
+    popGrowthTimer: 0,
+    hunger: 0,
+    hungerTimer: 0,
+    foodConsumptionTimer: 0,
+    dragBuilding: null,
+    isDragging: false,
+    dragStartMX: 0,
+    dragStartMY: 0,
+    zoom: 1,
+    cameraOffset: {x:0,y:0},
+    panning: false,
+    panLastX: 0,
+    panLastY: 0,
+    showGuide: false,
+    guideQuery: '',
+    ruins: [],
+    treeNodes: {},
+    stoneNodes: {},
+    upgrades: {forge:0,masonry:0},
+    dayNightTimer: 0,
+    isNight: false,
+    showDiplomacy: false,
+    diplomacy: {},
+    eventTimer: 0
+};
+globalThis.__gameState = gs;
+
+// ═══════════════════════════════════════════════════════════
+// INPUT
+// ═══════════════════════════════════════════════════════════
+const keys = {};
+const mouse = {x:0,y:0,wx:0,wy:0,left:false,right:false,middle:false};
+let selBox = null;
+let uiButtons = [];
+
+// ═══════════════════════════════════════════════════════════
+// UTILIDADES
+// ═══════════════════════════════════════════════════════════
+function rand(a,b){return Math.random()*(b-a)+a}
+function randInt(a,b){return Math.floor(rand(a,b+1))}
+function dist(x1,y1,x2,y2){return Math.sqrt((x2-x1)**2+(y2-y1)**2)}
+function clamp(v,mn,mx){return Math.max(mn,Math.min(mx,v))}
+function lerp(a,b,t){return a+(b-a)*t}
+function w2t(wx,wy){return{x:Math.floor(wx/TILE),y:Math.floor(wy/TILE)}}
+function getViewSize(){return{w:W/gs.zoom,h:H/gs.zoom}}
+function clampCamera(){
+    let vw=W/gs.zoom,vh=H/gs.zoom;
+    gs.camera.x=clamp(gs.camera.x,0,Math.max(0,MAP_W*TILE-vw));
+    gs.camera.y=clamp(gs.camera.y,0,Math.max(0,MAP_H*TILE-vh));
+}
+function updateMouseWorld(){
+    mouse.wx=mouse.x/gs.zoom+gs.camera.x;
+    mouse.wy=mouse.y/gs.zoom+gs.camera.y;
+}
+function hash(x,y){let h=x*374761393+y*668265263;h=(h^(h>>13))*1274126177;return(h^(h>>16))&0x7FFFFFFF}
+function srand(x,y){return(hash(x,y)%10000)/10000}
+function terrIndex(tx,ty){return ty*TERR_W+tx}
+function tileToTerr(tx,ty){return{x:clamp(Math.floor(tx/TERR_TILE),0,TERR_W-1),y:clamp(Math.floor(ty/TERR_TILE),0,TERR_H-1)}}
+function worldToTerr(wx,wy){let t=w2t(wx,wy);return tileToTerr(t.x,t.y)}
+function getTerritoryByTile(tx,ty){let tt=tileToTerr(tx,ty);return gs.territories[terrIndex(tt.x,tt.y)]}
+function getTerritoryByWorld(wx,wy){let tt=worldToTerr(wx,wy);return gs.territories[terrIndex(tt.x,tt.y)]}
+function getTerritoryCenterWorld(ttx,tty){
+    return {x:(ttx*TERR_TILE+TERR_TILE/2)*TILE,y:(tty*TERR_TILE+TERR_TILE/2)*TILE};
+}
+function armyCount(comp){return (comp.SWORDSMAN||0)+(comp.ARCHER||0)+(comp.SPEARMAN||0)}
+function armyPower(comp,posBonus){
+    let total=(comp.SWORDSMAN||0)*1.1+(comp.ARCHER||0)*1.15+(comp.SPEARMAN||0)*1.05;
+    return total*(1+posBonus);
+}
+function mergeArmyComposition(dst,src){
+    dst.SWORDSMAN=(dst.SWORDSMAN||0)+(src.SWORDSMAN||0);
+    dst.ARCHER=(dst.ARCHER||0)+(src.ARCHER||0);
+    dst.SPEARMAN=(dst.SPEARMAN||0)+(src.SPEARMAN||0);
+}
+
+function loadImg(src){
+    let img=new Image();img.src=src;return img;
+}
+function drawCharSheet(sheets,animState,dir,animFrame,dx,dy,size,rowMap){
+    if(!sheets)return false;
+    let img=sheets[animState]||sheets.idle;
+    if(!img||!img.complete||!img.naturalWidth)return false;
+    let mf=Math.max(1,Math.floor(img.naturalWidth/CHAR_FW));
+    let f=animFrame%mf;
+    let rows=rowMap||DIR_TO_ROW;
+    let row=rows[dir]||0;
+    ctx.drawImage(img,f*CHAR_FW,row*CHAR_FH,CHAR_FW,CHAR_FH,dx,dy,size,size);
+    return true;
+}
+function getGuideMatches(query){
+    let q=query.trim().toLowerCase();
+    if(!q)return GUIDE_ENTRIES;
+    return GUIDE_ENTRIES.filter(entry=>{
+        let blob=(entry.title+' '+entry.keywords+' '+entry.body).toLowerCase();
+        return blob.includes(q);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════
+// SISTEMA DE SPRITES
+// ═══════════════════════════════════════════════════════════
+const SC = {}; // sprite cache
+
+function mkCanvas(w,h,fn){
+    const c=document.createElement('canvas');c.width=w;c.height=h;
+    fn(c.getContext('2d'));return c;
+}
+function px(c,x,y,w,h,col){c.fillStyle=col;c.fillRect(x*PX,y*PX,w*PX,h*PX)}
+
+// ═══════════════════════════════════════════════════════════
+// SISTEMA DE ÍCONES SVG
+// ═══════════════════════════════════════════════════════════
+const IC={};
+function svgToImg(svgStr,size){
+    let img=new Image();
+    img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgStr);
+    img._s=size;
+    return img;
+}
+function initIcons(){
+    const S=18;
+    // Gold coin
+    IC.gold=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="10" fill="#FFD700" stroke="#B8860B" stroke-width="2"/><circle cx="12" cy="12" r="6" fill="#FFC107"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="bold" fill="#8B6914">$</text></svg>`,S);
+    // Food / wheat
+    IC.food=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M12 22V8" stroke="#8BC34A" stroke-width="2.5" stroke-linecap="round"/><ellipse cx="12" cy="6" rx="3" ry="5" fill="#FDD835"/><ellipse cx="8" cy="9" rx="2" ry="4" fill="#FDD835" transform="rotate(-25 8 9)"/><ellipse cx="16" cy="9" rx="2" ry="4" fill="#FDD835" transform="rotate(25 16 9)"/></svg>`,S);
+    // Wood
+    IC.wood=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="3" y="6" width="18" height="6" rx="3" fill="#8B6914" stroke="#5D4037" stroke-width="1"/><rect x="5" y="12" width="14" height="5" rx="2.5" fill="#A0522D" stroke="#5D4037" stroke-width="1"/><rect x="7" y="17" width="10" height="4" rx="2" fill="#6D4C21" stroke="#5D4037" stroke-width="1"/><ellipse cx="21" cy="9" rx="2.5" ry="2.5" fill="#C68642"/><ellipse cx="3" cy="9" rx="2.5" ry="2.5" fill="#C68642"/></svg>`,S);
+    // Stone
+    IC.stone=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M4 16l3-8 5-4 5 3 4 7-2 5H6z" fill="#90A4AE" stroke="#607D8B" stroke-width="1.5"/><path d="M7 8l3 2 4-1 3 3" stroke="#78909C" stroke-width="1" fill="none"/></svg>`,S);
+    // Swords / combat
+    IC.swords=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M4 20l5-5m0 0l-3-3L14 4l2 2 2-2 2 2-2 2 2 2L12 18l-3-3z" fill="none" stroke="#E0E0E0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 4l6 6" stroke="#B0BEC5" stroke-width="1.5"/><circle cx="5" cy="19" r="1.5" fill="#8B6914"/></svg>`,S);
+    // Population
+    IC.pop=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="9" cy="7" r="3.5" fill="#81D4FA"/><path d="M2 19c0-4 3.5-6 7-6s7 2 7 6" fill="#4FC3F7"/><circle cx="17" cy="8" r="2.5" fill="#81D4FA" opacity=".7"/><path d="M13 19c1-3 2.5-4 4-4s3 1 4 4" fill="#4FC3F7" opacity=".7"/></svg>`,S);
+    // Castle
+    IC.castle=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="3" y="10" width="18" height="12" fill="#78909C"/><rect x="1" y="4" width="5" height="18" fill="#90A4AE"/><rect x="18" y="4" width="5" height="18" fill="#90A4AE"/><rect x="8" y="6" width="8" height="16" fill="#B0BEC5"/><rect x="10" y="16" width="4" height="6" fill="#5D4037"/><rect x="1" y="2" width="2" height="4" fill="#607D8B"/><rect x="4" y="2" width="2" height="4" fill="#607D8B"/><rect x="18" y="2" width="2" height="4" fill="#607D8B"/><rect x="21" y="2" width="2" height="4" fill="#607D8B"/><polygon points="12,1 9,6 15,6" fill="#FFD700"/></svg>`,S);
+    // House
+    IC.house=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><polygon points="12,3 3,12 21,12" fill="#8D6E63"/><rect x="5" y="12" width="14" height="10" fill="#BCAAA4"/><rect x="10" y="16" width="4" height="6" fill="#5D4037"/><rect x="6" y="14" width="3" height="3" fill="#81D4FA"/><rect x="15" y="14" width="3" height="3" fill="#81D4FA"/></svg>`,S);
+    // House med
+    IC.house_med=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><polygon points="12,2 2,11 22,11" fill="#795548"/><rect x="3" y="11" width="18" height="11" fill="#A1887F"/><rect x="9" y="16" width="6" height="6" fill="#5D4037"/><rect x="4" y="13" width="4" height="3" fill="#81D4FA"/><rect x="16" y="13" width="4" height="3" fill="#81D4FA"/><rect x="10" y="12" width="4" height="3" fill="#81D4FA"/></svg>`,S);
+    // House big
+    IC.house_big=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="2" y="8" width="20" height="14" fill="#BCAAA4" rx="1"/><rect x="4" y="4" width="16" height="6" fill="#8D6E63" rx="1"/><rect x="6" y="2" width="12" height="4" fill="#795548" rx="1"/><rect x="9" y="16" width="6" height="6" fill="#5D4037"/><rect x="3" y="10" width="3" height="3" fill="#81D4FA"/><rect x="10" y="10" width="4" height="3" fill="#81D4FA"/><rect x="18" y="10" width="3" height="3" fill="#81D4FA"/></svg>`,S);
+    // Barracks
+    IC.barracks=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="2" y="8" width="20" height="14" fill="#795548" rx="1"/><polygon points="12,2 1,8 23,8" fill="#5D4037"/><rect x="9" y="14" width="6" height="8" fill="#3E2723"/><path d="M6 11l3-3 3 3M12 11l3-3 3 3" stroke="#FF5252" stroke-width="1.5" fill="none"/></svg>`,S);
+    // Farm
+    IC.farm=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="2" y="18" width="20" height="4" fill="#8BC34A" rx="1"/><rect x="6" y="10" width="12" height="10" fill="#BCAAA4"/><polygon points="12,4 4,10 20,10" fill="#F44336"/><rect x="10" y="14" width="4" height="6" fill="#5D4037"/><path d="M2 20h20M2 22h20" stroke="#689F38" stroke-width="0.5"/></svg>`,S);
+    // Wall
+    IC.wall=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="1" y="4" width="22" height="16" fill="#78909C" rx="1"/><rect x="2" y="5" width="9" height="7" fill="#90A4AE" stroke="#607D8B" stroke-width=".5"/><rect x="13" y="5" width="9" height="7" fill="#90A4AE" stroke="#607D8B" stroke-width=".5"/><rect x="2" y="13" width="6" height="6" fill="#B0BEC5" stroke="#607D8B" stroke-width=".5"/><rect x="9" y="13" width="6" height="6" fill="#B0BEC5" stroke="#607D8B" stroke-width=".5"/><rect x="16" y="13" width="6" height="6" fill="#B0BEC5" stroke="#607D8B" stroke-width=".5"/></svg>`,S);
+    // Tower
+    IC.tower=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="7" y="6" width="10" height="16" fill="#78909C"/><rect x="5" y="2" width="14" height="6" fill="#90A4AE"/><rect x="5" y="1" width="3" height="4" fill="#607D8B"/><rect x="10" y="1" width="4" height="3" fill="#607D8B"/><rect x="16" y="1" width="3" height="4" fill="#607D8B"/><rect x="10" y="12" width="4" height="4" fill="#FFC107"/><rect x="4" y="20" width="16" height="2" fill="#607D8B"/></svg>`,S);
+    // Lumber
+    IC.lumber=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="3" y="12" width="8" height="4" rx="2" fill="#8B6914"/><rect x="3" y="16" width="8" height="4" rx="2" fill="#6D4C21"/><path d="M16 4l5 8h-10z" fill="#B0BEC5"/><rect x="18" y="11" width="2" height="8" fill="#795548"/><rect x="15" y="19" width="8" height="2" fill="#795548"/></svg>`,S);
+    // Quarry / pickaxe
+    IC.quarry=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M6 4l6 6-6 6" fill="#78909C" stroke="#607D8B" stroke-width="1"/><path d="M18 4l-6 6 6 6" fill="#78909C" stroke="#607D8B" stroke-width="1"/><rect x="10" y="9" width="4" height="12" fill="#795548" rx="1"/><rect x="8" y="19" width="8" height="3" fill="#5D4037" rx="1"/></svg>`,S);
+    // Fishing
+    IC.fishing=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M4 4c0 0 0 12 8 12" stroke="#8D6E63" stroke-width="2" fill="none"/><circle cx="12" cy="18" r="1.5" fill="#F44336"/><path d="M12 19l0 3" stroke="#999" stroke-width="1"/><path d="M12 22l-1 1 2 0z" fill="#B0BEC5"/><path d="M17 14c-2 0-3 2-2 4 1 1 3 0 4-1s0-3-2-3z" fill="#2196F3"/></svg>`,S);
+    // Bow / archer
+    IC.bow=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M6 3c0 6 0 12 0 18" stroke="#8D6E63" stroke-width="2.5" fill="none" stroke-linecap="round"/><path d="M6 3c6 3 6 15 0 18" stroke="#A0522D" stroke-width="2" fill="none"/><line x1="6" y1="12" x2="20" y2="12" stroke="#E0E0E0" stroke-width="1.5"/><polygon points="20,12 17,10 17,14" fill="#E0E0E0"/></svg>`,S);
+    // Spear / trident
+    IC.spear=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="11" y="8" width="2" height="15" fill="#8D6E63"/><polygon points="12,1 8,9 16,9" fill="#B0BEC5" stroke="#78909C" stroke-width="1"/><polygon points="7,7 5,3 8,8" fill="#90A4AE"/><polygon points="17,7 19,3 16,8" fill="#90A4AE"/></svg>`,S);
+    // Map / territory
+    IC.map=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" fill="none" stroke="#9FD9FF" stroke-width="2"/><path d="M9 3v15M15 6v15" stroke="#9FD9FF" stroke-width="1" opacity=".5"/></svg>`,S);
+    // Moon / night
+    IC.moon=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M20 14A8 8 0 0110 4a8 8 0 1010 10z" fill="#8888CC"/><circle cx="14" cy="8" r="1" fill="#AAAADD" opacity=".5"/><circle cx="18" cy="13" r=".7" fill="#AAAADD" opacity=".5"/></svg>`,S);
+    // Sun / day
+    IC.sun=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="5" fill="#FFDD44"/><g stroke="#FFDD44" stroke-width="2" stroke-linecap="round"><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/><line x1="4" y1="4" x2="6.5" y2="6.5"/><line x1="17.5" y1="17.5" x2="20" y2="20"/><line x1="4" y1="20" x2="6.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="20" y2="4"/></g></svg>`,S);
+    // Zoom / magnifier
+    IC.zoom=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="10" cy="10" r="7" fill="none" stroke="#DDD" stroke-width="2.5"/><line x1="15" y1="15" x2="21" y2="21" stroke="#DDD" stroke-width="2.5" stroke-linecap="round"/><line x1="7" y1="10" x2="13" y2="10" stroke="#DDD" stroke-width="1.5"/><line x1="10" y1="7" x2="10" y2="13" stroke="#DDD" stroke-width="1.5"/></svg>`,S);
+    // Book
+    IC.book=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M4 4h5c2 0 3 1 3 3v13c-1-1-2.5-1-4-1H4z" fill="#F3D48A" stroke="#8B6914" stroke-width="1"/><path d="M20 4h-5c-2 0-3 1-3 3v13c1-1 2.5-1 4-1h4z" fill="#F3D48A" stroke="#8B6914" stroke-width="1"/></svg>`,S);
+    // Flag / army
+    IC.flag=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="5" y="2" width="2" height="20" fill="#795548"/><polygon points="7,3 20,3 17,8 20,13 7,13" fill="#F44336"/></svg>`,S);
+    // Gear / settings
+    IC.gear=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M12 16a4 4 0 110-8 4 4 0 010 8z" fill="none" stroke="#999" stroke-width="2"/><path d="M13.7 2.1l.8 2.5a7.9 7.9 0 012 1.2l2.5-.5 1.7 3-1.7 1.9c.1.6.1 1.2 0 1.8l1.7 1.9-1.7 3-2.5-.5a7.9 7.9 0 01-2 1.2l-.8 2.5h-3.4l-.8-2.5a7.9 7.9 0 01-2-1.2l-2.5.5-1.7-3 1.7-1.9c-.1-.6-.1-1.2 0-1.8L3.3 9.2 5 6.2l2.5.5a7.9 7.9 0 012-1.2l.8-2.5z" fill="none" stroke="#999" stroke-width="1.5"/></svg>`,S);
+    // Build / construction
+    IC.build=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="4" y="14" width="16" height="8" fill="#78909C" rx="1"/><rect x="6" y="10" width="12" height="6" fill="#90A4AE" rx="1"/><rect x="10" y="4" width="4" height="8" fill="#B0BEC5" rx="1"/><path d="M8 4h8l-4-3z" fill="#FFD700"/><rect x="9" y="18" width="6" height="4" fill="#546E7A"/></svg>`,S);
+    // Move / rotate
+    IC.move=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M12 2l3 4h-2v4h4v-2l4 3-4 3v-2h-4v4h2l-3 4-3-4h2v-4H7v2l-4-3 4-3v2h4V6H9z" fill="#4FC3F7"/></svg>`,S);
+    // Skull / death
+    IC.skull=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="10" r="8" fill="#EEE"/><circle cx="9" cy="9" r="2.5" fill="#333"/><circle cx="15" cy="9" r="2.5" fill="#333"/><polygon points="12,13 10,16 14,16" fill="#333"/><rect x="8" y="17" width="2" height="3" fill="#EEE"/><rect x="11" y="17" width="2" height="3" fill="#EEE"/><rect x="14" y="17" width="2" height="3" fill="#EEE"/></svg>`,S);
+    // Warning
+    IC.warn=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><polygon points="12,2 22,20 2,20" fill="#FF9800" stroke="#F57C00" stroke-width="1"/><text x="12" y="18" text-anchor="middle" font-size="14" font-weight="bold" fill="#FFF">!</text></svg>`,S);
+    // Check / success
+    IC.check=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="10" fill="#4CAF50"/><path d="M7 12l3 4 7-8" stroke="#FFF" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`,S);
+    // Error / X
+    IC.error=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="10" fill="#F44336"/><path d="M8 8l8 8M16 8l-8 8" stroke="#FFF" stroke-width="2.5" stroke-linecap="round"/></svg>`,S);
+    // Vampire
+    IC.vampire=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M12 2C8 2 5 5 5 9c0 2 .8 3.5 2 4.5V18l2 3h6l2-3v-4.5c1.2-1 2-2.5 2-4.5 0-4-3-7-7-7z" fill="#4a0a4a"/><circle cx="9" cy="9" r="1.5" fill="#FF0000"/><circle cx="15" cy="9" r="1.5" fill="#FF0000"/><path d="M9 14l1 3 1-1 1 1 1-1 1 1 1-3" fill="#FFF"/></svg>`,S);
+    // Bat
+    IC.bat=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M1 8c2 4 4 6 8 6h6c4 0 6-2 8-6-1 2-3 3-5 3l-2-3-1 2h-6l-1-2-2 3c-2 0-4-1-5-3z" fill="#2a1020"/><circle cx="10" cy="10" r="1.5" fill="#FF0000"/><circle cx="14" cy="10" r="1.5" fill="#FF0000"/><path d="M11 13l1 2 1-2" fill="#FFF"/></svg>`,S);
+    // Crown
+    IC.crown=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><polygon points="2,18 4,8 8,13 12,6 16,13 20,8 22,18" fill="#FFD700" stroke="#B8860B" stroke-width="1"/><rect x="2" y="17" width="20" height="4" fill="#FFD700" rx="1"/><circle cx="6" cy="10" r="1.5" fill="#FF0000"/><circle cx="12" cy="7" r="1.5" fill="#4CAF50"/><circle cx="18" cy="10" r="1.5" fill="#2196F3"/></svg>`,S);
+    // Handshake / alliance
+    IC.handshake=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M2 12h4l4 3 4-3h2l4 3h2" stroke="#4CAF50" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 8l4 4M20 8l-4 4" stroke="#81C784" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`,S);
+    // Dove / peace
+    IC.dove=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><ellipse cx="14" cy="12" rx="6" ry="4" fill="#E0E0E0"/><circle cx="8" cy="10" r="4" fill="#F5F5F5"/><circle cx="6.5" cy="9.5" r="1" fill="#333"/><path d="M5 11l-3 1" stroke="#FF9800" stroke-width="1.5" stroke-linecap="round"/><path d="M16 9c2-3 5-4 6-3s-1 4-3 5" fill="#E0E0E0"/><path d="M18 14l2 2-4 0z" fill="#E0E0E0"/></svg>`,S);
+    // Neutral face
+    IC.neutral=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="10" fill="none" stroke="#AAA" stroke-width="2"/><circle cx="9" cy="10" r="1.5" fill="#AAA"/><circle cx="15" cy="10" r="1.5" fill="#AAA"/><line x1="8" y1="16" x2="16" y2="16" stroke="#AAA" stroke-width="2" stroke-linecap="round"/></svg>`,S);
+    // Axe / barbarian
+    IC.axe=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="11" y="6" width="2" height="14" fill="#8D6E63" transform="rotate(-30 12 12)"/><path d="M8 4c-2 0-4 2-4 5s3 5 5 5l-1-5z" fill="#B0BEC5" stroke="#78909C" stroke-width="1"/></svg>`,S);
+    // Crystal ball / mage
+    IC.crystal=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="10" r="8" fill="#CE93D8" opacity=".4"/><circle cx="12" cy="10" r="8" fill="none" stroke="#BA68C8" stroke-width="2"/><circle cx="10" cy="8" r="2" fill="rgba(255,255,255,0.3)"/><path d="M6 18h12l-2 4H8z" fill="#78909C"/></svg>`,S);
+    // Haunted castle
+    IC.vamp_castle=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="3" y="8" width="18" height="14" fill="#1a0a2a"/><rect x="1" y="4" width="5" height="18" fill="#2a1040"/><rect x="18" y="4" width="5" height="18" fill="#2a1040"/><rect x="1" y="2" width="2" height="4" fill="#3a1050"/><rect x="4" y="2" width="2" height="4" fill="#3a1050"/><rect x="18" y="2" width="2" height="4" fill="#3a1050"/><rect x="21" y="2" width="2" height="4" fill="#3a1050"/><rect x="8" y="6" width="8" height="16" fill="#2a1040"/><circle cx="10" cy="12" r="1.5" fill="#CC0000"/><circle cx="14" cy="12" r="1.5" fill="#CC0000"/></svg>`,S);
+    // Orc / creature
+    IC.creature=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="10" r="7" fill="#4CAF50"/><circle cx="9" cy="9" r="2" fill="#FFF"/><circle cx="15" cy="9" r="2" fill="#FFF"/><circle cx="9" cy="9" r="1" fill="#333"/><circle cx="15" cy="9" r="1" fill="#333"/><path d="M8 15c2 2 6 2 8 0" stroke="#333" stroke-width="1.5" fill="none"/><path d="M5 5l3 2M19 5l-3 2" stroke="#4CAF50" stroke-width="2"/><rect x="8" y="17" width="8" height="5" fill="#388E3C" rx="2"/></svg>`,S);
+    // Gamepad
+    IC.gamepad=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="2" y="7" width="20" height="12" rx="4" fill="#546E7A"/><circle cx="7" cy="13" r="3" fill="none" stroke="#90A4AE" stroke-width="1.5"/><line x1="7" y1="11" x2="7" y2="15" stroke="#90A4AE" stroke-width="1.5"/><line x1="5" y1="13" x2="9" y2="13" stroke="#90A4AE" stroke-width="1.5"/><circle cx="16" cy="11" r="1.5" fill="#F44336"/><circle cx="19" cy="13" r="1.5" fill="#4CAF50"/><circle cx="16" cy="15" r="1.5" fill="#2196F3"/></svg>`,S);
+    // Mouse
+    IC.mouse=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="6" y="2" width="12" height="20" rx="6" fill="none" stroke="#AAA" stroke-width="2"/><line x1="12" y1="2" x2="12" y2="10" stroke="#AAA" stroke-width="1.5"/><circle cx="12" cy="7" r="2" fill="#AAA"/></svg>`,S);
+    // Save
+    IC.save=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="3" y="3" width="18" height="18" rx="2" fill="#546E7A"/><rect x="6" y="3" width="10" height="8" fill="#37474F"/><rect x="11" y="4" width="4" height="5" fill="#78909C"/><rect x="6" y="14" width="12" height="7" rx="1" fill="#ECEFF1"/></svg>`,S);
+    // Folder / load
+    IC.load=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M2 7h8l2-3h10v16H2z" fill="#FFC107"/><path d="M2 10h20v10H2z" fill="#FFD54F"/></svg>`,S);
+    // Hammer / upgrade
+    IC.hammer=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="5" y="10" width="14" height="6" rx="2" fill="#78909C"/><rect x="10" y="10" width="4" height="12" fill="#8D6E63"/><rect x="8" y="19" width="8" height="3" rx="1" fill="#795548"/></svg>`,S);
+    // Pause
+    IC.pause=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect x="6" y="4" width="4" height="16" rx="1" fill="#FFD700"/><rect x="14" y="4" width="4" height="16" rx="1" fill="#FFD700"/></svg>`,S);
+    // Tree
+    IC.tree=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><polygon points="12,2 4,14 20,14" fill="#4CAF50"/><polygon points="12,6 6,16 18,16" fill="#388E3C"/><rect x="10" y="16" width="4" height="6" fill="#795548"/></svg>`,S);
+    // Dagger
+    IC.dagger=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><polygon points="12,2 10,14 14,14" fill="#B0BEC5"/><rect x="9" y="13" width="6" height="3" rx="1" fill="#8D6914"/><rect x="11" y="16" width="2" height="6" fill="#8D6E63"/></svg>`,S);
+    // Diplomacy header
+    IC.diplomacy=IC.swords;
+    // Star
+    IC.star=svgToImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><polygon points="12,2 15,9 22,9 16,14 18,22 12,17 6,22 8,14 2,9 9,9" fill="#4FC3F7"/></svg>`,S);
+}
+
+// Desenha um ícone na posição (x,y) com tamanho s
+function drawIC(name,x,y,s){
+    let ic=IC[name];
+    if(!ic) return;
+    try{ctx.drawImage(ic,x,y,s||ic._s,s||ic._s);}catch(e){}
+}
+
+// Desenha ícone + texto ao lado, retorna largura total
+function drawIconText(iconName,text,x,y,s,gap){
+    let sz=s||16,g=gap||4;
+    drawIC(iconName,x,y-sz+3,sz);
+    ctx.fillText(text,x+sz+g,y);
+    return sz+g+ctx.measureText(text).width;
+}
+
+function initSprites(){
+    // ─── REI ───
+    SC.king=[];
+    for(let f=0;f<4;f++){
+        SC.king[f]=mkCanvas(TILE,TILE,(c)=>{
+            const lo=f%2;
+            // Coroa
+            px(c,5,0,6,1,'#FFD700');px(c,5,1,1,1,'#FFD700');px(c,7,1,2,1,'#FFD700');px(c,10,1,1,1,'#FFD700');
+            px(c,6,0,1,1,'#FF0000');px(c,9,0,1,1,'#00FF00');px(c,7,0,2,1,'#FFD700');
+            // Cabeça
+            px(c,6,2,4,4,'#FFD5B0');
+            px(c,7,3,1,1,'#2C1810');px(c,9,3,1,1,'#2C1810'); // olhos
+            px(c,7,5,2,1,'#8B6914'); // barba
+            // Corpo (manto)
+            px(c,4,6,8,5,'#8B0000');px(c,5,7,6,3,'#A01010');
+            px(c,3,6,1,5,'#600000');px(c,12,6,1,5,'#600000'); // cape sides
+            px(c,5,10,6,1,'#FFD700'); // cinto
+            // Braços
+            px(c,3,7,2,3,'#8B0000');px(c,11,7,2,3,'#8B0000');
+            px(c,3,10,2,1,'#FFD5B0');px(c,11,10,2,1,'#FFD5B0'); // mãos
+            // Pernas
+            px(c,5,11,3,3+lo,'#3D2B1F');px(c,8,11,3,3+(1-lo),'#3D2B1F');
+            px(c,5,14,3,1,'#1A0F00');px(c,8,14,3,1,'#1A0F00'); // botas
+            // Cetro
+            px(c,13,5,1,5,'#8B6914');px(c,12,4,3,1,'#FFD700');px(c,13,3,1,2,'#FFD700');
+        });
+    }
+
+    // ─── ESPADACHIM ───
+    SC.swordsman=[];
+    for(let f=0;f<4;f++){
+        SC.swordsman[f]=mkCanvas(TILE,TILE,(c)=>{
+            const lo=f%2;
+            px(c,6,0,4,2,'#808080');px(c,7,0,2,1,'#A0A0A0'); // capacete
+            px(c,6,2,4,3,'#FFD5B0'); // cabeça
+            px(c,7,3,1,1,'#222');px(c,9,3,1,1,'#222');
+            px(c,5,5,6,5,'#607080');px(c,6,6,4,3,'#708090'); // armadura
+            px(c,5,9,6,1,'#4A3628'); // cinto
+            px(c,6,10,2,3+lo,'#4A3628');px(c,8,10,2,3+(1-lo),'#4A3628'); // pernas
+            px(c,5,13,3,1,'#333');px(c,8,13,3,1,'#333');
+            px(c,3,5,2,4,'#1E3A5F');px(c,3,6,2,2,'#2E4A7F'); // escudo
+            px(c,12,2,1,7,'#C0C0C0');px(c,11,2,3,1,'#D0D0D0'); // espada
+            px(c,12,9,1,2,'#8B6914'); // punho
+        });
+    }
+
+    // ─── ARQUEIRO ───
+    SC.archer=[];
+    for(let f=0;f<4;f++){
+        SC.archer[f]=mkCanvas(TILE,TILE,(c)=>{
+            const lo=f%2;
+            px(c,6,0,4,2,'#2E5F2E');px(c,5,1,6,1,'#2E5F2E'); // capuz
+            px(c,6,2,4,3,'#FFD5B0');
+            px(c,7,3,1,1,'#222');px(c,9,3,1,1,'#222');
+            px(c,5,5,6,5,'#3E6F3E');px(c,6,6,4,3,'#4E8F4E');
+            px(c,6,10,2,3+lo,'#5C4033');px(c,8,10,2,3+(1-lo),'#5C4033');
+            px(c,5,13,3,1,'#3D2B1F');px(c,8,13,3,1,'#3D2B1F');
+            px(c,3,3,1,7,'#8B6914');px(c,2,4,1,5,'#9B7924'); // arco
+            px(c,2,4,1,1,'#C0C0C0'); // flecha
+            px(c,11,5,2,4,'#6B4914'); // aljava
+            px(c,12,4,1,2,'#C0C0C0');
+        });
+    }
+
+    // ─── LANCEIRO ───
+    SC.spearman=[];
+    for(let f=0;f<4;f++){
+        SC.spearman[f]=mkCanvas(TILE,TILE,(c)=>{
+            const lo=f%2;
+            px(c,6,0,4,2,'#B87333');px(c,7,0,2,1,'#CD853F');
+            px(c,6,2,4,3,'#FFD5B0');
+            px(c,7,3,1,1,'#222');px(c,9,3,1,1,'#222');
+            px(c,5,5,6,5,'#8B7355');px(c,6,6,4,3,'#9B8365');
+            px(c,6,10,2,3+lo,'#5C4033');px(c,8,10,2,3+(1-lo),'#5C4033');
+            px(c,5,13,3,1,'#3D2B1F');px(c,8,13,3,1,'#3D2B1F');
+            px(c,13,0,1,11,'#8B6914'); // lança
+            px(c,12,0,3,2,'#C0C0C0'); // ponta
+            px(c,3,6,2,3,'#8B4513'); // escudo pequeno
+        });
+    }
+
+    // ─── INIMIGO SOLDADO ───
+    SC.enemy=[];
+    for(let f=0;f<4;f++){
+        SC.enemy[f]=mkCanvas(TILE,TILE,(c)=>{
+            const lo=f%2;
+            px(c,6,0,4,2,'#333');px(c,7,0,2,1,'#444');
+            px(c,6,2,4,3,'#9B8365');
+            px(c,7,3,1,1,'#C00');px(c,9,3,1,1,'#C00');
+            px(c,5,5,6,5,'#2F2F2F');px(c,6,6,4,3,'#3F3F3F');
+            px(c,6,10,2,3+lo,'#1A1A1A');px(c,8,10,2,3+(1-lo),'#1A1A1A');
+            px(c,5,13,3,1,'#111');px(c,8,13,3,1,'#111');
+            px(c,12,3,1,6,'#800000');px(c,11,3,3,1,'#900000');
+        });
+    }
+
+    // ─── BANDIDO ───
+    SC.bandit=[];
+    for(let f=0;f<4;f++){
+        SC.bandit[f]=mkCanvas(TILE,TILE,(c)=>{
+            const lo=f%2;
+            px(c,6,0,4,2,'#2F1F0F');px(c,5,1,6,1,'#2F1F0F');
+            px(c,6,2,4,3,'#C19A6B');
+            px(c,7,3,1,1,'#111');px(c,9,3,1,1,'#111');
+            px(c,6,4,4,1,'#1A1A1A'); // máscara
+            px(c,5,5,6,5,'#3F2F1F');
+            px(c,6,10,2,3+lo,'#2F1F0F');px(c,8,10,2,3+(1-lo),'#2F1F0F');
+            px(c,5,13,3,1,'#1A0A00');px(c,8,13,3,1,'#1A0A00');
+            px(c,12,5,1,4,'#A0A0A0');px(c,12,4,1,1,'#C0C0C0'); // adaga
+        });
+    }
+
+    // ─── CRIATURA (GOBLIN) ───
+    SC.creature=[];
+    for(let f=0;f<4;f++){
+        SC.creature[f]=mkCanvas(TILE,TILE,(c)=>{
+            const lo=f%2;
+            px(c,4,1,2,2,'#4A7A2A');px(c,10,1,2,2,'#4A7A2A'); // orelhas
+            px(c,5,0,6,5,'#5A8A3A'); // cabeça
+            px(c,6,2,2,1,'#FF0');px(c,9,2,2,1,'#FF0'); // olhos
+            px(c,7,4,3,1,'#300'); // boca
+            px(c,5,5,6,5,'#4A5A2A');
+            px(c,3,6,2,4,'#5A8A3A');px(c,11,6,2,4,'#5A8A3A');
+            px(c,6,10,2,3+lo,'#3A4A1A');px(c,8,10,2,3+(1-lo),'#3A4A1A');
+            px(c,13,3,2,3,'#6B4914');px(c,13,6,1,3,'#6B4914'); // clava
+        });
+    }
+
+    // ─── ÁRVORES ───
+    SC.tree=[];
+    for(let t=0;t<3;t++){
+        SC.tree[t]=mkCanvas(TILE,TILE,(c)=>{
+            const g=['#1B5E20','#2E7D32','#388E3C'][t];
+            const d=['#0D3311','#1B4D1E','#256629'][t];
+            px(c,7,10,2,5,'#5D4037');px(c,6,14,4,1,'#4E342E'); // tronco
+            if(t===0){px(c,4,2,8,3,g);px(c,3,5,10,3,g);px(c,4,8,8,2,g);px(c,5,3,3,3,d);px(c,8,5,3,2,d)}
+            else if(t===1){px(c,7,0,2,2,g);px(c,5,2,6,2,g);px(c,4,4,8,2,g);px(c,3,6,10,3,g);px(c,6,3,2,3,d)}
+            else{px(c,3,4,10,4,g);px(c,4,3,8,2,g);px(c,4,8,8,2,g);px(c,5,4,4,3,d)}
+        });
+    }
+
+    // ─── PEDRAS/MONTANHA ───
+    SC.rock=mkCanvas(TILE,TILE,(c)=>{
+        px(c,3,6,10,8,'#707070');px(c,4,5,8,2,'#808080');
+        px(c,5,4,6,2,'#888');px(c,6,7,3,2,'#999');px(c,9,9,3,2,'#666');
+    });
+
+    // ─── CONSTRUÇÕES ───
+    // Castelo (3x3)
+    SC.castle=mkCanvas(TILE*3,TILE*3,(c)=>{
+        // Base muros
+        px(c,4,8,40,30,'#909090');px(c,5,9,38,28,'#A0A0A0');
+        // Torres nos cantos
+        px(c,2,6,5,6,'#808080');px(c,41,6,5,6,'#808080');
+        px(c,2,30,5,6,'#808080');px(c,41,30,5,6,'#808080');
+        // Ameias
+        px(c,2,5,2,2,'#606060');px(c,5,5,2,2,'#606060');
+        px(c,41,5,2,2,'#606060');px(c,44,5,2,2,'#606060');
+        // Torre principal
+        px(c,17,2,14,12,'#888');px(c,18,3,12,10,'#999');
+        // Teto torre
+        px(c,16,0,16,3,'#654321');px(c,18,0,12,1,'#8B5A2B');
+        // Portão
+        px(c,20,28,8,10,'#4A3628');px(c,21,27,6,1,'#606060');
+        // Grade do portão
+        for(let i=0;i<3;i++)px(c,21+i*2,28,1,8,'#333');
+        // Bandeira
+        px(c,24,0,1,4,'#8B6914');px(c,25,0,4,2,'#CC0000');px(c,25,2,3,1,'#CC0000');
+        // Janelas
+        px(c,20,6,2,3,'#2F1F0F');px(c,26,6,2,3,'#2F1F0F');
+        // Estandarte
+        px(c,10,12,3,5,'#800000');px(c,35,12,3,5,'#800000');
+        px(c,11,13,1,3,'#FFD700');px(c,36,13,1,3,'#FFD700');
+        // Detalhes muros
+        for(let y=10;y<36;y+=4)for(let x=6;x<42;x+=5)px(c,x,y,3,2,'#B0B0B0');
+    });
+
+    // Casa
+    SC.house=mkCanvas(TILE,TILE,(c)=>{
+        px(c,2,4,12,10,'#DEB887');px(c,3,5,10,8,'#F5DEB3'); // paredes
+        px(c,4,0,8,1,'#A0522D');px(c,3,1,10,1,'#8B4513');px(c,2,2,12,1,'#8B4513');px(c,1,3,14,2,'#7B3F00'); // telhado
+        px(c,7,9,2,5,'#654321');px(c,8,10,1,1,'#FFD700'); // porta
+        px(c,3,6,3,2,'#87CEEB');px(c,4,6,1,2,'#333'); // janela esq
+        px(c,10,6,3,2,'#87CEEB');px(c,11,6,1,2,'#333'); // janela dir
+        px(c,1,14,14,1,'#808080'); // base
+        px(c,7,0,2,1,'#808080'); // chaminé
+    });
+
+    // Quartel (2x2)
+    SC.barracks=mkCanvas(TILE*2,TILE*2,(c)=>{
+        px(c,2,8,28,20,'#707070');px(c,3,9,26,18,'#808080'); // base
+        px(c,1,5,30,4,'#654321');px(c,2,4,28,2,'#7B5B3A');px(c,4,3,24,1,'#8B6B4A'); // telhado
+        px(c,13,22,6,8,'#4A3628');px(c,14,21,4,1,'#606060'); // porta
+        // Armas
+        px(c,4,10,1,8,'#6B4914');px(c,3,10,3,1,'#C0C0C0');px(c,3,14,3,1,'#C0C0C0');
+        px(c,7,10,1,8,'#6B4914');px(c,6,11,3,1,'#C0C0C0');
+        // Bandeira
+        px(c,27,0,1,5,'#6B4914');px(c,28,0,3,3,'#CC0000');px(c,28,1,2,1,'#FFD700');
+        // Escudo emblema
+        px(c,20,10,6,7,'#1E3A5F');px(c,21,11,4,5,'#2E4A7F');
+        px(c,22,13,2,2,'#FFD700'); // coroa no escudo
+        // Janelas
+        px(c,8,12,3,3,'#2F1F0F');px(c,21,22,3,3,'#2F1F0F');
+    });
+
+    // Fazenda (2x2)
+    SC.farm=mkCanvas(TILE*2,TILE*2,(c)=>{
+        // Campo
+        px(c,0,0,32,32,'#8B7355');
+        for(let y=0;y<32;y+=3){for(let x=0;x<32;x+=2){
+            if((x+y)%4===0){px(c,x,y,1,2,'#228B22');px(c,x,y,1,1,'#90EE90')}
+        }}
+        // Celeiro
+        px(c,10,8,12,12,'#8B4513');px(c,11,9,10,10,'#A0522D');
+        px(c,9,6,14,3,'#654321');px(c,10,5,12,2,'#7B5B3A');
+        px(c,14,14,4,6,'#4A3628'); // porta
+        px(c,11,10,3,2,'#2F1F0F'); // janela
+        // Feno
+        px(c,2,22,5,5,'#DAA520');px(c,25,22,5,5,'#DAA520');
+        px(c,3,21,3,1,'#EECC30');px(c,26,21,3,1,'#EECC30');
+        // Cerca
+        for(let x=0;x<32;x+=5){px(c,x,27,1,5,'#8B6914');px(c,x,28,4,1,'#8B6914')}
+    });
+
+    // Muro
+    SC.wall=mkCanvas(TILE,TILE,(c)=>{
+        px(c,1,2,14,12,'#808080');px(c,2,3,12,10,'#909090');
+        px(c,1,2,14,1,'#707070');
+        px(c,4,1,2,2,'#606060');px(c,10,1,2,2,'#606060');
+        for(let y=4;y<12;y+=3)for(let x=2;x<14;x+=4)px(c,x,y,3,2,'#A0A0A0');
+        px(c,1,13,14,2,'#707070');
+    });
+
+    // Torre de defesa
+    SC.tower=mkCanvas(TILE,TILE,(c)=>{
+        px(c,3,4,10,11,'#808080');px(c,4,5,8,9,'#909090');
+        px(c,2,2,12,3,'#707070');
+        px(c,2,1,2,2,'#606060');px(c,6,1,2,2,'#606060');px(c,10,1,2,2,'#606060');
+        px(c,7,6,2,4,'#1A1A1A'); // seteira
+        px(c,6,7,4,2,'#1A1A1A');
+        px(c,7,0,1,2,'#8B6914');px(c,8,0,2,1,'#0000FF'); // bandeira
+        px(c,4,12,8,2,'#707070'); // base reforçada
+    });
+
+    // Serraria
+    SC.lumber=mkCanvas(TILE,TILE,(c)=>{
+        px(c,2,4,12,10,'#A08020');px(c,3,5,10,8,'#B09030');
+        px(c,1,2,14,3,'#654321');px(c,2,1,12,2,'#7B5B3A');
+        px(c,6,9,4,5,'#4A3628'); // porta
+        px(c,1,13,3,2,'#6B4914');px(c,12,13,3,2,'#6B4914'); // troncos
+        px(c,1,12,3,1,'#6B4914');px(c,12,12,3,1,'#6B4914');
+        px(c,10,5,3,1,'#C0C0C0');px(c,9,6,4,1,'#888'); // serra
+        px(c,11,3,1,3,'#8B6914'); // poste serra
+    });
+
+    // Pedreira
+    SC.quarry=mkCanvas(TILE,TILE,(c)=>{
+        px(c,1,9,14,6,'#6f6f6f');px(c,2,10,12,4,'#808080');
+        px(c,3,3,5,7,'#7a7a7a');px(c,4,4,3,5,'#8a8a8a');
+        px(c,9,2,5,8,'#696969');px(c,10,3,3,6,'#797979');
+        px(c,6,0,1,9,'#8B6914');px(c,6,1,5,1,'#B0B0B0');
+        px(c,11,1,2,2,'#C0C0C0');
+    });
+
+    // Porto de Pesca
+    SC.fishing=mkCanvas(TILE,TILE,(c)=>{
+        px(c,2,6,12,3,'#8B6914');px(c,3,9,10,2,'#7B5904');
+        px(c,3,11,2,4,'#6B4904');px(c,11,11,2,4,'#6B4904');
+        px(c,1,3,14,1,'#654321');px(c,2,2,12,2,'#7B5B3A');px(c,3,1,10,1,'#8B6B4A');
+        px(c,12,5,2,4,'#AAA');px(c,13,6,1,3,'#888');
+        px(c,4,7,3,2,'#4488CC');px(c,3,8,1,1,'#4488CC');
+        px(c,8,5,3,3,'#8B6914');px(c,9,5,1,2,'#AA8934');
+        px(c,0,13,16,3,'#2980b9');px(c,1,14,14,1,'#3498db');
+    });
+
+    // Casa Média
+    SC.house_med=mkCanvas(TILE,TILE,(c)=>{
+        px(c,2,2,12,12,'#D2B48C');px(c,3,3,10,10,'#DEBA82');
+        px(c,3,0,10,1,'#3C5A8C');px(c,2,1,12,1,'#2C4A7C');px(c,1,2,14,2,'#1C3A6C');
+        px(c,7,9,2,5,'#654321');px(c,8,10,1,1,'#FFD700');
+        px(c,3,5,3,3,'#87CEEB');px(c,4,5,1,3,'#333');
+        px(c,10,5,3,3,'#87CEEB');px(c,11,5,1,3,'#333');
+        px(c,3,8,3,2,'#87CEEB');px(c,4,8,1,2,'#333');
+        px(c,1,14,14,1,'#808080');
+        px(c,6,0,1,2,'#808080');px(c,9,0,1,2,'#808080');
+    });
+
+    // Casa Grande (2x2)
+    SC.house_big=mkCanvas(TILE*2,TILE*2,(c)=>{
+        px(c,2,6,28,22,'#C8A870');px(c,3,7,26,20,'#D8B880');
+        px(c,1,3,30,4,'#7B3F00');px(c,2,2,28,2,'#8B4F10');px(c,4,1,24,1,'#9B5F20');
+        px(c,4,7,24,2,'#B09060');
+        px(c,5,9,4,3,'#87CEEB');px(c,6,9,2,3,'#333');
+        px(c,12,9,4,3,'#87CEEB');px(c,13,9,2,3,'#333');
+        px(c,21,9,4,3,'#87CEEB');px(c,22,9,2,3,'#333');
+        px(c,5,15,4,3,'#87CEEB');px(c,6,15,2,3,'#333');
+        px(c,21,15,4,3,'#87CEEB');px(c,22,15,2,3,'#333');
+        px(c,13,18,6,10,'#4A3628');px(c,14,17,4,1,'#808080');
+        px(c,14,19,1,1,'#FFD700');px(c,17,19,1,1,'#FFD700');
+        px(c,1,28,30,2,'#808080');
+        px(c,14,0,4,2,'#808080');px(c,15,0,2,1,'#A0A0A0');
+        px(c,2,6,2,22,'#A09070');px(c,28,6,2,22,'#A09070');
+    });
+
+    // ─── Carregar spritesheets PNG ───
+    let charAnims={idle:'Idle',walk:'Walk',attack:'attack',run:'Run',death:'Death',hurt:'Hurt'};
+    ['lvl1','lvl2','lvl3'].forEach(lvl=>{
+        SC['char_'+lvl]={};
+        for(let a in charAnims){
+            SC['char_'+lvl][a]=loadImg(CHAR_PATH+'/Swordsman_'+lvl+'/Without_shadow/Swordsman_'+lvl+'_'+charAnims[a]+'_without_shadow.png');
+        }
+    });
+    let orcAnims={idle:'idle',walk:'walk',attack:'attack',run:'run',death:'death',hurt:'hurt'};
+    ['1','2','3'].forEach(id=>{
+        SC['orc'+id]={};
+        for(let a in orcAnims){
+            SC['orc'+id][a]=loadImg(ORC_PATH+'/Orc'+id+'/Without_shadow/orc'+id+'_'+orcAnims[a]+'_without_shadow.png');
+        }
+    });
+    // Carregar árvores PNG
+    SC.pngTrees=[
+        loadImg(TREE_IMG_PATH+'/Tree1.png'),
+        loadImg(TREE_IMG_PATH+'/Tree2.png'),
+        loadImg(TREE_IMG_PATH+'/Tree3.png'),
+        loadImg(TREE_IMG_PATH+'/Autumn_tree1.png'),
+        loadImg(TREE_IMG_PATH+'/Autumn_tree2.png'),
+        loadImg(TREE_IMG_PATH+'/Moss_tree1.png'),
+        loadImg(TREE_IMG_PATH+'/Fruit_tree1.png')
+    ];
+    SC.ruins=[
+        loadImg(RUIN_IMG_PATH+'/Brown-gray_ruins1.png'),
+        loadImg(RUIN_IMG_PATH+'/Brown-gray_ruins2.png'),
+        loadImg(RUIN_IMG_PATH+'/Brown-gray_ruins3.png'),
+        loadImg(RUIN_IMG_PATH+'/Blue-gray_ruins1.png'),
+        loadImg(RUIN_IMG_PATH+'/Sand_ruins2.png'),
+        loadImg(RUIN_IMG_PATH+'/White_ruins4.png')
+    ];
+    SC.rockNodes=[
+        loadImg(ROCK_IMG_PATH+'/Rock1_1_no_shadow.png'),
+        loadImg(ROCK_IMG_PATH+'/Rock2_2_no_shadow.png'),
+        loadImg(ROCK_IMG_PATH+'/Rock3_3_no_shadow.png'),
+        loadImg(ROCK_IMG_PATH+'/Rock4_4_no_shadow.png'),
+        loadImg(ROCK_IMG_PATH+'/Rock5_2_no_shadow.png'),
+        loadImg(ROCK_IMG_PATH+'/Rock6_5_no_shadow.png'),
+        loadImg(ROCK_IMG_PATH+'/Rock8_3_no_shadow.png')
+    ];
+
+    // ─── Sprites Vampiros ───
+    SC.vamp_castle=mkCanvas(TILE*3,TILE*3,(c)=>{
+        c.fillStyle='#1a0a1a';c.fillRect(0,0,TILE*3,TILE*3);
+        c.fillStyle='#2a1230';c.fillRect(4,4,TILE*3-8,TILE*3-8);
+        c.fillStyle='#3d1a44';c.fillRect(8,8,TILE*3-16,TILE*3-16);
+        // Towers
+        c.fillStyle='#1a0a1a';
+        c.fillRect(2,2,16,20);c.fillRect(TILE*3-18,2,16,20);
+        c.fillRect(2,TILE*3-22,16,20);c.fillRect(TILE*3-18,TILE*3-22,16,20);
+        // Tower tips
+        c.fillStyle='#4a0a4a';
+        c.fillRect(4,0,12,6);c.fillRect(TILE*3-16,0,12,6);
+        // Red windows
+        c.fillStyle='#CC0000';
+        c.fillRect(6,10,4,4);c.fillRect(TILE*3-10,10,4,4);
+        c.fillRect(TILE*3/2-4,TILE*3/2-4,8,6);
+        // Red banner
+        c.fillStyle='#880000';c.fillRect(TILE*3/2-2,4,4,18);
+        c.fillStyle='#CC0000';c.fillRect(TILE*3/2-6,4,12,4);
+    });
+    SC.vamp_lair=mkCanvas(TILE*2,TILE*2,(c)=>{
+        c.fillStyle='#120818';c.fillRect(0,0,TILE*2,TILE*2);
+        c.fillStyle='#1e0e28';c.fillRect(4,4,TILE*2-8,TILE*2-8);
+        c.fillStyle='#2a1438';c.fillRect(10,10,TILE*2-20,TILE*2-20);
+        c.fillStyle='#CC0000';c.fillRect(22,22,6,4);c.fillRect(36,22,6,4);
+        c.fillStyle='#880000';c.fillRect(26,32,12,6);
+    });
+    SC.dark_tower=mkCanvas(TILE,TILE,(c)=>{
+        c.fillStyle='#1a0a2a';c.fillRect(6,4,20,28);
+        c.fillStyle='#2a1040';c.fillRect(8,6,16,24);
+        c.fillStyle='#3a1850';c.fillRect(4,0,24,8);
+        c.fillStyle='#CC0000';c.fillRect(12,12,4,4);c.fillRect(18,12,4,4);
+        c.fillStyle='#6a0060';c.fillRect(10,24,12,4);
+    });
+    SC.cemetery=mkCanvas(TILE*2,TILE*2,(c)=>{
+        c.fillStyle='#1a1a20';c.fillRect(0,0,TILE*2,TILE*2);
+        c.fillStyle='#2a2a30';c.fillRect(2,2,TILE*2-4,TILE*2-4);
+        // Gravestones
+        c.fillStyle='#666';
+        c.fillRect(8,18,6,12);c.fillRect(6,16,10,4);
+        c.fillRect(26,22,6,10);c.fillRect(24,20,10,4);
+        c.fillRect(42,16,6,14);c.fillRect(40,14,10,4);
+        c.fillRect(18,36,6,12);c.fillRect(16,34,10,4);
+        c.fillRect(38,38,6,10);c.fillRect(36,36,10,4);
+        // Crosses
+        c.fillStyle='#888';
+        c.fillRect(10,12,2,8);c.fillRect(8,15,6,2);
+        c.fillRect(44,10,2,8);c.fillRect(42,13,6,2);
+    });
+
+    // Vampire unit sprites (canvas fallback)
+    SC.vamp_warrior=[];
+    for(let f=0;f<4;f++){
+        SC.vamp_warrior[f]=mkCanvas(TILE,TILE,(c)=>{
+            let lo=f%2;
+            c.fillStyle='#2a0a0a';c.fillRect(6,2+lo,20,10);// cape
+            c.fillStyle='#D4C4A0';c.fillRect(10,4+lo,4,4);c.fillRect(18,4+lo,4,4);// pale face
+            c.fillStyle='#CC0000';c.fillRect(11,5+lo,2,2);c.fillRect(19,5+lo,2,2);// eyes
+            c.fillStyle='#1a0808';c.fillRect(8,12+lo,16,12);// body
+            c.fillStyle='#3a1010';c.fillRect(10,14+lo,12,8);
+            c.fillStyle='#888';c.fillRect(22,14+lo,4,10);// sword
+            c.fillStyle='#CCC';c.fillRect(23,10+lo,2,6);
+            c.fillRect(8,24+lo,6,6);c.fillRect(18,24+lo,6,6);// boots
+        });
+    }
+    SC.vamp_lord=[];
+    for(let f=0;f<4;f++){
+        SC.vamp_lord[f]=mkCanvas(TILE,TILE,(c)=>{
+            let lo=f%2;
+            c.fillStyle='#3a0a3a';c.fillRect(4,1+lo,24,14);// big cape
+            c.fillStyle='#D4C4A0';c.fillRect(11,3+lo,10,6);// face
+            c.fillStyle='#FF0000';c.fillRect(13,5+lo,2,2);c.fillRect(17,5+lo,2,2);// eyes
+            c.fillStyle='#FFD700';c.fillRect(10,1+lo,12,3);// crown
+            c.fillStyle='#FF0000';c.fillRect(14,0+lo,4,2);
+            c.fillStyle='#1a081a';c.fillRect(6,14+lo,20,12);// body
+            c.fillStyle='#2a0a2a';c.fillRect(8,16+lo,16,8);
+            c.fillRect(6,26+lo,8,4);c.fillRect(18,26+lo,8,4);// boots
+        });
+    }
+    SC.giant_bat=[];
+    for(let f=0;f<4;f++){
+        SC.giant_bat[f]=mkCanvas(TILE,TILE,(c)=>{
+            let lo=f%2;
+            c.fillStyle='#1a0a1a';
+            // Wings
+            c.fillRect(0,8+lo,12,8);c.fillRect(20,8+lo,12,8);
+            c.fillRect(2,6+lo,8,4);c.fillRect(22,6+lo,8,4);
+            // Body
+            c.fillStyle='#2a1020';c.fillRect(10,6+lo,12,14);
+            c.fillStyle='#3a1830';c.fillRect(12,8+lo,8,10);
+            // Eyes
+            c.fillStyle='#FF0000';c.fillRect(12,10+lo,3,2);c.fillRect(17,10+lo,3,2);
+            // Fangs
+            c.fillStyle='#FFF';c.fillRect(13,15+lo,2,3);c.fillRect(17,15+lo,2,3);
+        });
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// GERAÇÃO DO MAPA
+// ═══════════════════════════════════════════════════════════
+function generateMap(){
+    let noise=[], moist=[];
+    for(let y=0;y<MAP_H;y++){
+        noise[y]=[];moist[y]=[];
+        for(let x=0;x<MAP_W;x++){
+            noise[y][x]=srand(x*7+13,y*11+7);
+            moist[y][x]=srand(x*3+97,y*5+53);
+        }
+    }
+    for(let iter=0;iter<5;iter++){
+        let nn=[],nm=[];
+        for(let y=0;y<MAP_H;y++){
+            nn[y]=[];nm[y]=[];
+            for(let x=0;x<MAP_W;x++){
+                let s=0,ms=0,c=0;
+                for(let dy=-2;dy<=2;dy++){for(let dx=-2;dx<=2;dx++){
+                    let ny=clamp(y+dy,0,MAP_H-1),nx=clamp(x+dx,0,MAP_W-1);
+                    s+=noise[ny][nx];ms+=moist[ny][nx];c++;
+                }}
+                nn[y][x]=s/c;nm[y][x]=ms/c;
+            }
+        }
+        noise=nn;moist=nm;
+    }
+
+    let map=[];
+    for(let y=0;y<MAP_H;y++){
+        map[y]=[];
+        for(let x=0;x<MAP_W;x++){
+            let h=noise[y][x],m=moist[y][x];
+            if(h<0.35) map[y][x]=T.WATER;
+            else if(h<0.40) map[y][x]=T.SAND;
+            else if(h<0.70){
+                if(m>0.55) map[y][x]=T.FOREST;
+                else if(m>0.48) map[y][x]=T.FIELD;
+                else map[y][x]=T.GRASS;
+            }
+            else if(h<0.82) map[y][x]=T.GRASS;
+            else map[y][x]=T.MOUNTAIN;
+        }
+    }
+
+    // Limpar área inicial (centro)
+    let cx=Math.floor(MAP_W/2),cy=Math.floor(MAP_H/2);
+    for(let dy=-8;dy<=8;dy++)for(let dx=-8;dx<=8;dx++){
+        let ny=cy+dy,nx=cx+dx;
+        if(ny>=0&&ny<MAP_H&&nx>=0&&nx<MAP_W) map[ny][nx]=T.GRASS;
+    }
+
+    // Estradas a partir do centro
+    [[1,0],[-1,0],[0,1],[0,-1]].forEach(([ddx,ddy])=>{
+        let rx=cx,ry=cy;
+        for(let i=0;i<40;i++){
+            rx+=ddx;ry+=ddy;
+            if(Math.random()>0.65){rx+=(ddy!==0?randInt(-1,1):0);ry+=(ddx!==0?randInt(-1,1):0)}
+            rx=clamp(rx,1,MAP_W-2);ry=clamp(ry,1,MAP_H-2);
+            if(map[ry][rx]!==T.WATER&&map[ry][rx]!==T.MOUNTAIN){
+                map[ry][rx]=T.ROAD;
+                if(ry+1<MAP_H&&map[ry+1][rx]!==T.WATER) map[ry+1][rx]=T.ROAD;
+            }
+        }
+    });
+
+    // Rios
+    for(let r=0;r<2;r++){
+        let rx=randInt(10,MAP_W-10),ry=0;
+        while(ry<MAP_H){
+            for(let dx=-1;dx<=1;dx++){
+                let nx=rx+dx;
+                if(nx>=0&&nx<MAP_W) map[ry][nx]=T.WATER;
+            }
+            ry++;rx+=randInt(-1,1);rx=clamp(rx,2,MAP_W-3);
+        }
+    }
+
+    // Re-limpar centro após rios
+    for(let dy=-6;dy<=6;dy++)for(let dx=-6;dx<=6;dx++){
+        let ny=cy+dy,nx=cx+dx;
+        if(ny>=0&&ny<MAP_H&&nx>=0&&nx<MAP_W) map[ny][nx]=T.GRASS;
+    }
+
+    // Limpar cantos dos reinos IA
+    // Bárbaros (NW)
+    for(let dy=-5;dy<=5;dy++)for(let dx=-5;dx<=5;dx++){
+        let ny=8+dy,nx=8+dx;
+        if(ny>=0&&ny<MAP_H&&nx>=0&&nx<MAP_W&&map[ny][nx]!==T.WATER) map[ny][nx]=T.GRASS;
+    }
+    // Magos (SE)
+    for(let dy=-5;dy<=5;dy++)for(let dx=-5;dx<=5;dx++){
+        let ny=MAP_H-9+dy,nx=MAP_W-9+dx;
+        if(ny>=0&&ny<MAP_H&&nx>=0&&nx<MAP_W&&map[ny][nx]!==T.WATER) map[ny][nx]=T.GRASS;
+    }
+    // Vampiros (NE) - terreno sombrio com mais florestas
+    for(let dy=-5;dy<=5;dy++)for(let dx=-5;dx<=5;dx++){
+        let ny=8+dy,nx=MAP_W-9+dx;
+        if(ny>=0&&ny<MAP_H&&nx>=0&&nx<MAP_W){
+            map[ny][nx]=(Math.abs(dx)+Math.abs(dy)<4)?T.GRASS:T.FOREST;
+        }
+    }
+
+    return map;
+}
+
+// ═══════════════════════════════════════════════════════════
+// CLASSES
+// ═══════════════════════════════════════════════════════════
+class Entity{
+    constructor(x,y){
+        this.x=x;this.y=y;this.hp=100;this.maxHp=100;
+        this.frame=0;this.ftimer=0;this.dir=0;this.alive=true;
+        this.flashTimer=0;
+        this.animState='idle';this.animFrame=0;this.animTimer=0;
+    }
+    update(dt){
+        this.ftimer+=dt;
+        if(this.ftimer>0.18){this.ftimer=0;this.frame=(this.frame+1)%4}
+        this.animTimer+=dt;
+        let aspd=this.animState==='attack'?0.09:0.13;
+        if(this.animTimer>=aspd){
+            this.animTimer=0;this.animFrame++;
+            let mf=ANIM_FRAMES[this.animState]||6;
+            if(this.animFrame>=mf)this.animFrame=0;
+        }
+        if(this.flashTimer>0) this.flashTimer-=dt;
+        if(this.hp<=0) this.alive=false;
+    }
+    takeDamage(dmg){
+        this.hp-=dmg;
+        this.flashTimer=0.1;
+        if(this.hp<=0){this.hp=0;this.alive=false}
+        addParticle(this.x,this.y-12,'-'+dmg,'#FF4444');
+    }
+}
+
+class King extends Entity{
+    constructor(x,y){
+        super(x,y);this.speed=2.8;this.hp=200;this.maxHp=200;
+        this.atk=20;this.def=15;this.attackTimer=0;
+    }
+    update(dt){
+        super.update(dt);
+        this.attackTimer-=dt;
+        let dx=0,dy=0;
+        if(keys['KeyW']||keys['ArrowUp'])dy=-1;
+        if(keys['KeyS']||keys['ArrowDown'])dy=1;
+        if(keys['KeyA']||keys['ArrowLeft'])dx=-1;
+        if(keys['KeyD']||keys['ArrowRight'])dx=1;
+
+        if(dx||dy){
+            let len=Math.sqrt(dx*dx+dy*dy);dx/=len;dy/=len;
+            let nx=this.x+dx*this.speed*TILE*dt;
+            let ny=this.y+dy*this.speed*TILE*dt;
+            let t=w2t(nx,ny);
+            if(t.x>=0&&t.x<MAP_W&&t.y>=0&&t.y<MAP_H){
+                let ter=gs.map[t.y][t.x];
+                if(ter!==T.MOUNTAIN){
+                    // Checar colisão com construção
+                    let blocked=false;
+                    for(let b of gs.buildings){
+                        if(b.hp<=0)continue;
+                        let bx=b.x*TILE,by=b.y*TILE,bw=b.def.w*TILE,bh=b.def.h*TILE;
+                        if(nx>bx+4&&nx<bx+bw-4&&ny>by+4&&ny<by+bh-4){blocked=true;break}
+                    }
+                    if(!blocked){
+                        this.x=clamp(nx,TILE,(MAP_W-1)*TILE);
+                        this.y=clamp(ny,TILE,(MAP_H-1)*TILE);
+                    }
+                }
+            }
+            if(Math.abs(dx)>Math.abs(dy))this.dir=dx>0?3:2;
+            else this.dir=dy>0?0:1;
+        }
+
+        // Auto-ataque inimigos próximos
+        let isMoving=!!(dx||dy);
+        if(this.attackTimer<=0){
+            for(let e of gs.enemies){
+                if(!e.alive)continue;
+                if(dist(this.x,this.y,e.x,e.y)<TILE*1.5){
+                    let dmg=Math.max(1,Math.floor((this.atk-Math.floor(e.def*0.3))*getCombatMultiplier()));
+                    e.takeDamage(dmg);
+                    this.attackTimer=0.6;
+                    addExplosion(e.x,e.y);
+                    break;
+                }
+            }
+        }
+        if(this.attackTimer>0.3)this.animState='attack';
+        else if(isMoving)this.animState='walk';
+        else this.animState='idle';
+    }
+    draw(){
+        let sx=this.x-gs.camera.x,sy=this.y-gs.camera.y;
+        let sz=TILE+6;
+        if(this.flashTimer>0){ctx.globalAlpha=0.5+(Math.sin(gs.gameTime*40)*0.5)}
+        if(!drawCharSheet(SC.char_lvl3,this.animState,this.dir,this.animFrame,sx-sz/2,sy-sz/2,sz)){
+            ctx.drawImage(SC.king[this.frame],sx-TILE/2,sy-TILE/2);
+        }
+        ctx.globalAlpha=1;
+        drawHP(sx-TILE/2,sy-TILE/2-10,TILE,5,this.hp,this.maxHp);
+        ctx.fillStyle='#FFD700';ctx.font='14px monospace';ctx.textAlign='center';
+        ctx.fillText('♛',sx,sy-TILE/2-14);ctx.textAlign='left';
+    }
+}
+
+class PlayerUnit extends Entity{
+    constructor(x,y,type){
+        super(x,y);
+        let d=UDEF[type];
+        this.type=type;this.name=d.name;
+        this.hp=d.hp;this.maxHp=d.hp;
+        this.atk=d.atk+(gs.upgrades.forge*3);this.def=d.def;this.speed=d.spd;
+        this.range=d.range;this.selected=false;
+        this.targetEnemy=null;this.moveTarget=null;
+        this.attackTimer=0;this.state='idle';
+    }
+    update(dt){
+        super.update(dt);
+        this.attackTimer-=dt;
+
+        // Procurar inimigo se não tem alvo
+        if(!this.targetEnemy||!this.targetEnemy.alive){
+            this.targetEnemy=null;
+            let md=this.range*TILE*4;
+            for(let e of gs.enemies){
+                if(!e.alive)continue;
+                let d=dist(this.x,this.y,e.x,e.y);
+                if(d<md){md=d;this.targetEnemy=e}
+            }
+        }
+
+        if(this.moveTarget){
+            let dx=this.moveTarget.x-this.x,dy=this.moveTarget.y-this.y;
+            let d=Math.sqrt(dx*dx+dy*dy);
+            if(d>8){
+                this.state='moving';
+                let nx=this.x+(dx/d)*this.speed*TILE*dt;
+                let ny=this.y+(dy/d)*this.speed*TILE*dt;
+                let t=w2t(nx,ny);
+                if(t.x>=0&&t.x<MAP_W&&t.y>=0&&t.y<MAP_H){
+                    let ter=gs.map[t.y][t.x];
+                    if(ter!==T.MOUNTAIN){this.x=nx;this.y=ny}
+                }
+                if(Math.abs(dx)>Math.abs(dy))this.dir=dx>0?3:2;
+                else this.dir=dy>0?0:1;
+            } else {this.moveTarget=null;this.state='idle'}
+        }
+        else if(this.targetEnemy&&this.targetEnemy.alive){
+            let d=dist(this.x,this.y,this.targetEnemy.x,this.targetEnemy.y);
+            if(d<=this.range*TILE){
+                this.state='attacking';
+                if(this.attackTimer<=0){
+                    let dmg=Math.max(1,Math.floor((this.atk-Math.floor(this.targetEnemy.def*0.3))*getCombatMultiplier()));
+                    this.targetEnemy.takeDamage(dmg);
+                    this.attackTimer=0.8;
+                    if(this.type==='ARCHER'){
+                        gs.projectiles.push({x:this.x,y:this.y-8,tx:this.targetEnemy.x,ty:this.targetEnemy.y-8,timer:0.3,color:'#FFD700'});
+                    } else {addExplosion(this.targetEnemy.x,this.targetEnemy.y)}
+                }
+            } else {
+                let dx=this.targetEnemy.x-this.x,dy=this.targetEnemy.y-this.y;
+                let len=Math.sqrt(dx*dx+dy*dy);
+                let nx=this.x+(dx/len)*this.speed*TILE*dt;
+                let ny=this.y+(dy/len)*this.speed*TILE*dt;
+                let t=w2t(nx,ny);
+                if(t.x>=0&&t.x<MAP_W&&t.y>=0&&t.y<MAP_H){
+                    let ter=gs.map[t.y][t.x];
+                    if(ter!==T.MOUNTAIN){this.x=nx;this.y=ny}
+                }
+                this.state='moving';
+            }
+        } else this.state='idle';
+
+        if(this.state==='attacking')this.animState='attack';
+        else if(this.state==='moving')this.animState='walk';
+        else this.animState='idle';
+    }
+    draw(){
+        let sx=this.x-gs.camera.x,sy=this.y-gs.camera.y;
+        let sz=TILE+4;
+        let sheet=SC[UNIT_SHEET_MAP[this.type]];
+        if(this.flashTimer>0){ctx.globalAlpha=0.5+(Math.sin(gs.gameTime*40)*0.5)}
+        if(!drawCharSheet(sheet,this.animState,this.dir,this.animFrame,sx-sz/2,sy-sz/2,sz)){
+            let spr=SC[this.type.toLowerCase()];
+            if(spr)ctx.drawImage(spr[this.frame],sx-TILE/2,sy-TILE/2);
+        }
+        ctx.globalAlpha=1;
+        if(this.selected){
+            ctx.strokeStyle='#0F0';ctx.lineWidth=2;
+            ctx.strokeRect(sx-sz/2-2,sy-sz/2-2,sz+4,sz+4);
+        }
+        drawHP(sx-TILE/2,sy-TILE/2-8,TILE,4,this.hp,this.maxHp);
+    }
+}
+
+class EnemyUnit extends Entity{
+    constructor(x,y,type){
+        super(x,y);
+        this.type=type;
+        this.isVampire=!!VAMP_STATS[type];
+        if(this.isVampire){
+            let vs=VAMP_STATS[type];
+            this.speed=vs.spd;this.atk=vs.atk;this.def=vs.def;
+            this.hp=vs.hp;this.maxHp=vs.hp;this.range=vs.range;
+            this.lifeSteal=vs.lifeSteal||0;
+            this.auraRange=vs.auraRange||0;this.auraBonus=vs.auraBonus||0;
+            this.flying=vs.flying||false;
+            this.loot=vs.loot;
+        }else{
+            this.speed=type==='bandit'?1.2:type==='creature'?0.9:1.0;
+            this.atk=type==='creature'?18:type==='soldier'?12:8;
+            this.def=type==='soldier'?8:type==='creature'?6:3;
+            this.hp=type==='creature'?120:type==='soldier'?70:40;
+            this.maxHp=this.hp;this.range=1.3;
+            this.loot={gold:type==='bandit'?20:type==='creature'?30:10,food:type==='creature'?10:5};
+        }
+        this.target=null;this.attackTimer=0;
+    }
+    findTarget(){
+        this.target=null;
+        let md=Infinity;
+        // Alvejar unidades do jogador
+        for(let u of gs.units){
+            if(!u.alive)continue;
+            let d=dist(this.x,this.y,u.x,u.y);
+            if(d<md){md=d;this.target=u}
+        }
+        // Alvejar rei
+        if(gs.king&&gs.king.alive){
+            let d=dist(this.x,this.y,gs.king.x,gs.king.y);
+            if(d<md){md=d;this.target=gs.king}
+        }
+        // Se nenhuma unidade perto, ir pro castelo
+        if(!this.target||md>TILE*15){
+            let castle=gs.buildings.find(b=>b.type==='CASTLE'&&b.hp>0);
+            if(castle){
+                let bx=castle.x*TILE+castle.def.w*TILE/2;
+                let by=castle.y*TILE+castle.def.h*TILE/2;
+                this.target={x:bx,y:by,alive:true,isBuilding:true,building:castle,def:5,
+                    takeDamage:(d)=>{castle.hp-=d;if(castle.hp<=0)addMessage('[!!] Castelo destruído!')}};
+            }
+        }
+    }
+    update(dt){
+        super.update(dt);
+        this.attackTimer-=dt;
+
+        // Vampire day/night modifier
+        let spdMod=1,atkMod=1;
+        if(this.isVampire){
+            if(gs.isNight){spdMod=1.3;atkMod=1.25}
+            else{spdMod=0.7;atkMod=0.8}
+        }
+
+        // Vampire Lord aura - boost nearby vampires
+        if(this.type==='vamp_lord'){
+            for(let e of gs.enemies){
+                if(!e.alive||e===this||!e.isVampire)continue;
+                if(dist(this.x,this.y,e.x,e.y)<this.auraRange*TILE){
+                    e._auraBoost=this.auraBonus;
+                }
+            }
+        }
+        let auraMod=1+(this._auraBoost||0);
+        this._auraBoost=0;
+
+        if(!this.target||!this.target.alive||(this.target.isBuilding&&this.target.building.hp<=0)){
+            this.findTarget();
+        }
+
+        if(this.target){
+            let tx=this.target.x,ty=this.target.y;
+            let d=dist(this.x,this.y,tx,ty);
+            if(d<=this.range*TILE){
+                this.animState='attack';
+                if(this.attackTimer<=0){
+                    let targetDef=this.target.def||0;
+                    let dmg=Math.max(1,Math.floor(this.atk*atkMod*auraMod-Math.floor(targetDef*0.3)));
+                    this.target.takeDamage(dmg);
+                    this.attackTimer=1.2;
+                    // Life steal for vampire warrior
+                    if(this.lifeSteal>0){
+                        let heal=Math.floor(dmg*this.lifeSteal);
+                        this.hp=Math.min(this.maxHp,this.hp+heal);
+                        addParticle(this.x,this.y-8,'+'+heal,'#00CC00');
+                    }
+                }
+            } else {
+                let ddx=tx-this.x,ddy=ty-this.y,len=Math.sqrt(ddx*ddx+ddy*ddy);
+                let spd=this.speed*spdMod;
+                let nx=this.x+(ddx/len)*spd*TILE*dt;
+                let ny=this.y+(ddy/len)*spd*TILE*dt;
+                let t=w2t(nx,ny);
+                if(t.x>=0&&t.x<MAP_W&&t.y>=0&&t.y<MAP_H){
+                    let ter=gs.map[t.y][t.x];
+                    if(this.flying||ter!==T.MOUNTAIN){this.x=nx;this.y=ny}
+                }
+                if(Math.abs(ddx)>Math.abs(ddy))this.dir=ddx>0?3:2;
+                else this.dir=ddy>0?0:1;
+                this.animState='walk';
+            }
+        } else this.animState='idle';
+    }
+    draw(){
+        let sx=this.x-gs.camera.x,sy=this.y-gs.camera.y;
+        let sz=TILE+4;
+        if(this.flashTimer>0){ctx.globalAlpha=0.5+(Math.sin(gs.gameTime*40)*0.5)}
+        let drawn=false;
+        if(this.isVampire){
+            let spr=SC[this.type];
+            if(spr&&spr[this.frame]) ctx.drawImage(spr[this.frame],sx-TILE/2,sy-TILE/2);
+            drawn=true;
+        }else{
+            let sheetKey=ENEMY_SHEET_MAP[this.type];
+            if(sheetKey)drawn=drawCharSheet(SC[sheetKey],this.animState,this.dir,this.animFrame,sx-sz/2,sy-sz/2,sz,ORC_DIR_TO_ROW);
+            if(!drawn){
+                let key=ENEMY_SPRITE_MAP[this.type];
+                let spr=SC[key];if(spr)ctx.drawImage(spr[this.frame],sx-TILE/2,sy-TILE/2);
+            }
+        }
+        ctx.globalAlpha=1;
+        drawHP(sx-TILE/2,sy-TILE/2-8,TILE,4,this.hp,this.maxHp);
+        // Icon label acima do inimigo
+        let iconName=this.type==='vamp_warrior'?'vampire':this.type==='vamp_lord'?'crown':this.type==='giant_bat'?'bat':this.type==='soldier'?'swords':'creature';
+        drawIC(iconName,sx-6,sy-TILE/2-20,12);
+    }
+}
+
+class Building{
+    constructor(x,y,type){
+        this.x=x;this.y=y;this.type=type;this.def=BUILD[type]||VAMP_BUILD[type]||{w:1,h:1,hp:100,icon:'?',cost:{gold:0},popCap:0,workers:0};
+        this.hp=this.def.hp;this.maxHp=this.def.hp;
+        if(type==='WALL'){this.hp+=gs.upgrades.masonry*90;this.maxHp+=gs.upgrades.masonry*90}
+        if(type==='TOWER'){this.hp+=gs.upgrades.masonry*70;this.maxHp+=gs.upgrades.masonry*70}
+        this.attackTimer=0;
+    }
+    update(dt){
+        if(this.hp<=0)return;
+        // Torre e Torre Sombria atacam inimigos/player
+        if((this.type==='TOWER'||this.type==='DARK_TOWER')&&this.def.attack){
+            this.attackTimer-=dt;
+            if(this.attackTimer<=0){
+                let bx=this.x*TILE+TILE/2,by=this.y*TILE+TILE/2;
+                let range=this.def.range*TILE;
+                let targets=this.type==='DARK_TOWER'?[...gs.units,gs.king].filter(Boolean):gs.enemies;
+                for(let e of targets){
+                    if(!e||!e.alive)continue;
+                    let d=dist(bx,by,e.x,e.y);
+                    if(d<=range){
+                        e.takeDamage(this.def.attack);
+                        gs.projectiles.push({x:bx,y:by-8,tx:e.x,ty:e.y-8,timer:0.25,color:this.type==='DARK_TOWER'?'#CC00CC':'#FFA500'});
+                        this.attackTimer=1.5;break;
+                    }
+                }
+            }
+        }
+    }
+    draw(){
+        let sx=this.x*TILE-gs.camera.x,sy=this.y*TILE-gs.camera.y;
+        if(this.type==='WALL'){
+            this._drawConnectedWall(sx,sy);
+        } else {
+            let spr=SC[this.type.toLowerCase()];
+            if(spr) ctx.drawImage(spr,sx,sy);
+            else{
+                // Fallback for unknown building types
+                ctx.fillStyle='#444';ctx.fillRect(sx,sy,this.def.w*TILE,this.def.h*TILE);
+                ctx.font='10px monospace';ctx.fillStyle='#FFF';ctx.textAlign='center';
+                ctx.fillText(this.def.icon||'?',sx+this.def.w*TILE/2,sy+this.def.h*TILE/2+4);
+                ctx.textAlign='left';
+            }
+        }
+        if(this.hp<this.maxHp){
+            drawHP(sx,sy-8,this.def.w*TILE,5,this.hp,this.maxHp);
+        }
+        // Selection highlight
+        if(gs.selectedBuilding===this||gs.selectedBuildings.includes(this)){
+            ctx.strokeStyle='#FFD700';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+            ctx.strokeRect(sx-2,sy-2,this.def.w*TILE+4,this.def.h*TILE+4);
+            ctx.setLineDash([]);
+        }
+        // Range indicator para torre
+        if(this.type==='TOWER'&&(gs.buildMode||gs.selectedBuilding===this)){
+            ctx.strokeStyle='rgba(255,165,0,0.3)';ctx.lineWidth=1;
+            ctx.beginPath();
+            ctx.arc(sx+TILE/2,sy+TILE/2,this.def.range*TILE,0,Math.PI*2);
+            ctx.stroke();
+        }
+    }
+    _drawConnectedWall(sx,sy){
+        let bs=gs.buildings;
+        let wl=b=>(b.type==='WALL'||b.type==='TOWER')&&b.hp>0;
+        let n=bs.some(b=>wl(b)&&b.x===this.x&&b.y===this.y-1);
+        let s=bs.some(b=>wl(b)&&b.x===this.x&&b.y===this.y+1);
+        let e=bs.some(b=>wl(b)&&b.x===this.x+1&&b.y===this.y);
+        let w=bs.some(b=>wl(b)&&b.x===this.x-1&&b.y===this.y);
+        // Core block
+        let cx=sx+6,cy=sy+6,cw=20,ch=20;
+        if(n){cy=sy;ch+=6} if(s){ch+=6}
+        if(w){cx=sx;cw+=6} if(e){cw+=6}
+        ctx.fillStyle='#808080';ctx.fillRect(cx,cy,cw,ch);
+        ctx.fillStyle='#909090';ctx.fillRect(cx+2,cy+2,cw-4,ch-4);
+        // Battlements on exposed edges
+        ctx.fillStyle='#606060';
+        if(!n){ctx.fillRect(sx+4,sy+2,6,5);ctx.fillRect(sx+14,sy+2,6,5);ctx.fillRect(sx+22,sy+2,6,5)}
+        if(!s){ctx.fillRect(sx+4,sy+25,6,5);ctx.fillRect(sx+14,sy+25,6,5);ctx.fillRect(sx+22,sy+25,6,5)}
+        if(!e){ctx.fillRect(sx+26,sy+4,5,6);ctx.fillRect(sx+26,sy+14,5,6);ctx.fillRect(sx+26,sy+22,5,6)}
+        if(!w){ctx.fillRect(sx+1,sy+4,5,6);ctx.fillRect(sx+1,sy+14,5,6);ctx.fillRect(sx+1,sy+22,5,6)}
+        // Brick detail
+        ctx.fillStyle='#A0A0A0';
+        ctx.fillRect(sx+10,sy+10,5,3);ctx.fillRect(sx+17,sy+17,5,3);
+        ctx.fillRect(sx+17,sy+10,5,3);ctx.fillRect(sx+10,sy+19,5,3);
+        // Top shadow
+        ctx.fillStyle='#6A6A6A';ctx.fillRect(cx,cy,cw,2);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// EFEITOS
+// ═══════════════════════════════════════════════════════════
+function addParticle(x,y,text,color){
+    gs.particles.push({x,y,text,color,vy:-40,life:1.8,maxLife:1.8});
+}
+function addExplosion(x,y){
+    gs.explosions.push({x,y,radius:2,maxRadius:12,life:0.3});
+}
+function addMessage(text){
+    gs.messages.push({text,timer:3.5});
+    if(gs.messages.length>5) gs.messages.shift();
+}
+
+function updateEffects(dt){
+    for(let i=gs.particles.length-1;i>=0;i--){
+        let p=gs.particles[i];
+        p.y+=p.vy*dt;p.life-=dt;
+        if(p.life<=0) gs.particles.splice(i,1);
+    }
+    for(let i=gs.projectiles.length-1;i>=0;i--){
+        gs.projectiles[i].timer-=dt;
+        if(gs.projectiles[i].timer<=0) gs.projectiles.splice(i,1);
+    }
+    for(let i=gs.explosions.length-1;i>=0;i--){
+        let e=gs.explosions[i];
+        e.life-=dt;e.radius=e.maxRadius*(1-e.life/0.3);
+        if(e.life<=0) gs.explosions.splice(i,1);
+    }
+    for(let i=gs.messages.length-1;i>=0;i--){
+        gs.messages[i].timer-=dt;
+        if(gs.messages[i].timer<=0) gs.messages.splice(i,1);
+    }
+    if(gs.screenShake>0) gs.screenShake-=dt*4;
+}
+
+// ═══════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════
+function drawHP(x,y,w,h,hp,max){
+    let r=hp/max;
+    ctx.fillStyle='#222';ctx.fillRect(x,y,w,h);
+    ctx.fillStyle=r>0.6?'#2ecc71':r>0.3?'#f39c12':'#e74c3c';
+    ctx.fillRect(x+1,y+1,(w-2)*r,h-2);
+    ctx.strokeStyle='#000';ctx.lineWidth=1;ctx.strokeRect(x,y,w,h);
+}
+
+function canBuild(tx,ty,def,exclude){
+    for(let dy=0;dy<def.h;dy++){for(let dx=0;dx<def.w;dx++){
+        let x=tx+dx,y=ty+dy;
+        if(x<0||x>=MAP_W||y<0||y>=MAP_H) return false;
+        let ter=gs.map[y][x];
+        if(ter===T.WATER||ter===T.MOUNTAIN) return false;
+        let terr=getTerritoryByTile(x,y);
+        if(!terr||terr.owner!==OWNER.PLAYER) return false;
+        for(let b of gs.buildings){
+            if(b.hp<=0||b===exclude)continue;
+            if(x>=b.x&&x<b.x+b.def.w&&y>=b.y&&y<b.y+b.def.h) return false;
+        }
+    }}
+    if(def.needsWater){
+        let hw=false;
+        for(let dy=-1;dy<=def.h;dy++){for(let dx=-1;dx<=def.w;dx++){
+            let x=tx+dx,y=ty+dy;
+            if(x>=0&&x<MAP_W&&y>=0&&y<MAP_H&&gs.map[y][x]===T.WATER)hw=true;
+        }}
+        if(!hw)return false;
+    }
+    if(def.needsRock){
+        let hr=false;
+        for(let dy=-3;dy<=def.h+2;dy++)for(let dx=-3;dx<=def.w+2;dx++){
+            let x=tx+dx,y=ty+dy;
+            if(x>=0&&x<MAP_W&&y>=0&&y<MAP_H&&gs.stoneNodes[nodeKey(x,y)]) hr=true;
+        }
+        if(!hr) return false;
+    }
+    return true;
+}
+function canAfford(c){
+    return gs.resources.gold>=(c.gold||0)&&gs.resources.food>=(c.food||0)&&gs.resources.wood>=(c.wood||0)&&gs.resources.stone>=(c.stone||0);
+}
+function spend(c){
+    gs.resources.gold-=(c.gold||0);
+    gs.resources.food-=(c.food||0);
+    gs.resources.wood-=(c.wood||0);
+    gs.resources.stone-=(c.stone||0);
+}
+function hasBarracks(){return gs.buildings.some(b=>b.type==='BARRACKS'&&b.hp>0)}
+
+function upgradeForge(){
+    let lv=gs.upgrades.forge;
+    let cost={gold:120+lv*90,wood:20+lv*15,stone:40+lv*35};
+    if(lv>=5){addMessage('[i] Forja já está no nível máximo.');return}
+    if(!canAfford(cost)){addMessage('[x] Recursos insuficientes para forjar espadas.');return}
+    spend(cost);
+    gs.upgrades.forge++;
+    for(let u of gs.units){u.atk+=3;}
+    addMessage('[+] Forja melhorada! Espadas nível '+gs.upgrades.forge);
+}
+
+function upgradeMasonry(){
+    let lv=gs.upgrades.masonry;
+    let cost={gold:100+lv*80,wood:45+lv*20,stone:65+lv*45};
+    if(lv>=5){addMessage('[i] Alvenaria já está no nível máximo.');return}
+    if(!canAfford(cost)){addMessage('[x] Recursos insuficientes para reforçar muralhas.');return}
+    spend(cost);
+    gs.upgrades.masonry++;
+    for(let b of gs.buildings){
+        if(b.type==='WALL'){b.maxHp+=90;b.hp+=90}
+        if(b.type==='TOWER'){b.maxHp+=70;b.hp+=70}
+    }
+    addMessage('[+] Muralhas reforçadas! Nível '+gs.upgrades.masonry);
+}
+
+function recruitUnit(type){
+    if(!hasBarracks()){addMessage('[x] Construa um Quartel primeiro!');return}
+    let def=UDEF[type];
+    if(!canAfford(def.cost)){addMessage('[x] Recursos insuficientes!');return}
+    let popNeeded=def.cost.pop||0;
+    if(popNeeded>0&&getAvailablePop()<popNeeded){addMessage('[x] População insuficiente! Construa mais casas.');return}
+    let bar=gs.buildings.find(b=>b.type==='BARRACKS'&&b.hp>0);
+    if(!bar)return;
+    spend(def.cost);
+    let ux=bar.x*TILE+bar.def.w*TILE+TILE+rand(-10,10);
+    let uy=bar.y*TILE+TILE+rand(-10,10);
+    gs.units.push(new PlayerUnit(ux,uy,type));
+    addMessage('[+] '+def.name+' recrutado!');
+}
+
+// ═══════════════════════════════════════════════════════════
+// ESTRUTURAS VAMPIRAS (NÃO-JOGADOR)
+// ═══════════════════════════════════════════════════════════
+const VAMP_BUILD = {
+    VAMP_CASTLE:{id:'VAMP_CASTLE',name:'Castelo Vampiro',w:3,h:3,cost:{gold:0},hp:600,icon:'vamp_castle',popCap:0,workers:0},
+    VAMP_LAIR:{id:'VAMP_LAIR',name:'Covil de Vampiros',w:2,h:2,cost:{gold:0},hp:300,icon:'bat',popCap:0,workers:0},
+    DARK_TOWER:{id:'DARK_TOWER',name:'Torre Sombria',w:1,h:1,cost:{gold:0},hp:350,attack:18,range:7,icon:'tower',popCap:0,workers:0},
+    CEMETERY:{id:'CEMETERY',name:'Cemitério',w:2,h:2,cost:{gold:0},hp:200,icon:'⚰️',popCap:0,workers:0}
+};
+
+// ═══════════════════════════════════════════════════════════
+// DIPLOMACIA
+// ═══════════════════════════════════════════════════════════
+function diploKey(a,b){return Math.min(a,b)+'_'+Math.max(a,b)}
+function initDiplomacy(){
+    gs.diplomacy={};
+    let all=[OWNER.PLAYER,OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
+    for(let i=0;i<all.length;i++){
+        for(let j=i+1;j<all.length;j++){
+            let k=diploKey(all[i],all[j]);
+            // Vampires at war with everyone initially
+            if(all[i]===OWNER.VAMPIRES||all[j]===OWNER.VAMPIRES) gs.diplomacy[k]=DIPLO.WAR;
+            // Player at war with barbarians and mages initially
+            else if(all[i]===OWNER.PLAYER||all[j]===OWNER.PLAYER) gs.diplomacy[k]=DIPLO.WAR;
+            // AI kingdoms neutral to each other
+            else gs.diplomacy[k]=DIPLO.NEUTRAL;
+        }
+    }
+}
+function getDiplo(a,b){if(a===b)return DIPLO.ALLIANCE;return gs.diplomacy[diploKey(a,b)]||DIPLO.NEUTRAL}
+function setDiplo(a,b,state){gs.diplomacy[diploKey(a,b)]=state}
+function isAtWar(a,b){return getDiplo(a,b)===DIPLO.WAR}
+function declareWar(a,b){
+    setDiplo(a,b,DIPLO.WAR);
+    let nameA=OWNER_NAMES[a]||'?',nameB=OWNER_NAMES[b]||'?';
+    addMessage('[!] '+nameA+' declarou guerra ao '+nameB+'!');
+}
+function makeAlliance(a,b){
+    setDiplo(a,b,DIPLO.ALLIANCE);
+    let nameA=OWNER_NAMES[a]||'?',nameB=OWNER_NAMES[b]||'?';
+    addMessage('[+] '+nameA+' fez aliança com '+nameB+'!');
+}
+function makePeace(a,b){
+    setDiplo(a,b,DIPLO.PEACE);
+    let nameA=OWNER_NAMES[a]||'?',nameB=OWNER_NAMES[b]||'?';
+    addMessage('[~] '+nameA+' fez paz com '+nameB+'!');
+}
+
+// ═══════════════════════════════════════════════════════════
+// CICLO DIA/NOITE
+// ═══════════════════════════════════════════════════════════
+function updateDayNight(dt){
+    gs.dayNightTimer+=dt;
+    if(gs.dayNightTimer>=DAY_CYCLE) gs.dayNightTimer-=DAY_CYCLE;
+    let wasNight=gs.isNight;
+    gs.isNight=gs.dayNightTimer>=(DAY_CYCLE*0.55); // 55% dia, 45% noite
+    if(gs.isNight&&!wasNight) addMessage('[!] A noite caiu... Vampiros ficam mais fortes!');
+    if(!gs.isNight&&wasNight) addMessage('[~] O sol nasceu. Vampiros estão enfraquecidos.');
+}
+function getNightAlpha(){
+    if(!gs.isNight) return 0;
+    let nightStart=DAY_CYCLE*0.55,nightEnd=DAY_CYCLE;
+    let t=(gs.dayNightTimer-nightStart)/(nightEnd-nightStart);
+    // Fade in/out
+    if(t<0.1) return t/0.1*0.35;
+    if(t>0.9) return (1-(t-0.9)/0.1)*0.35;
+    return 0.35;
+}
+
+// ═══════════════════════════════════════════════════════════
+// EVENTOS ALEATÓRIOS
+// ═══════════════════════════════════════════════════════════
+function updateRandomEvents(dt){
+    gs.eventTimer+=dt;
+    if(gs.eventTimer<60) return;
+    gs.eventTimer=0;
+    let roll=Math.random();
+
+    // Ataque noturno de vampiros
+    if(gs.isNight&&roll<0.35){
+        let vampTerr=getOwnerTerritories(OWNER.VAMPIRES);
+        let playerTerr=getOwnerTerritories(OWNER.PLAYER);
+        if(vampTerr.length>0&&playerTerr.length>0){
+            // Spawn vampire raid near player
+            let target=playerTerr[randInt(0,playerTerr.length-1)];
+            let cx=(target.x*TERR_TILE+TERR_TILE/2)*TILE;
+            let cy=(target.y*TERR_TILE+TERR_TILE/2)*TILE;
+            let types=['vamp_warrior','vamp_warrior','vamp_warrior','giant_bat','giant_bat'];
+            if(gs.waveNumber>=3) types.push('vamp_lord');
+            for(let i=0;i<types.length;i++){
+                gs.enemies.push(new EnemyUnit(cx+rand(-80,80),cy+rand(-80,80),types[i]));
+            }
+            addMessage('🧛 Ataque noturno dos vampiros!');
+            gs.screenShake=0.5;
+        }
+        return;
+    }
+    // Invasão surpresa de um reino IA
+    if(roll<0.5){
+        let aiOwners=[OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
+        let attacker=aiOwners[randInt(0,aiOwners.length-1)];
+        let targets=aiOwners.filter(o=>o!==attacker&&isAtWar(attacker,o));
+        if(targets.length>0){
+            let defender=targets[randInt(0,targets.length-1)];
+            let atkTerr=getOwnerTerritories(attacker);
+            let defTerr=getOwnerTerritories(defender);
+            if(atkTerr.length>0&&defTerr.length>0){
+                let from=atkTerr[randInt(0,atkTerr.length-1)];
+                let to=defTerr[randInt(0,defTerr.length-1)];
+                spawnArmy(attacker,{SWORDSMAN:randInt(4,8),ARCHER:randInt(3,6),SPEARMAN:randInt(3,6)},from,to);
+                let aN=OWNER_NAMES[attacker]||'?',dN=OWNER_NAMES[defender]||'?';
+                addMessage('⚔️ '+aN+' invadiu o '+dN+'!');
+            }
+        }
+        return;
+    }
+    // Guerra espontânea entre reinos neutros
+    if(roll<0.65){
+        let pairs=[[OWNER.ENEMY_A,OWNER.ENEMY_B],[OWNER.ENEMY_A,OWNER.VAMPIRES],[OWNER.ENEMY_B,OWNER.VAMPIRES]];
+        let pair=pairs[randInt(0,pairs.length-1)];
+        if(getDiplo(pair[0],pair[1])===DIPLO.NEUTRAL){
+            declareWar(pair[0],pair[1]);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CONSTRUÇÕES VAMPIRAS NO MAPA
+// ═══════════════════════════════════════════════════════════
+function initVampireStructures(){
+    // Localizar centro do território vampiro (nordeste)
+    let vTerr=getOwnerTerritories(OWNER.VAMPIRES);
+    if(vTerr.length===0) return;
+    let avgX=0,avgY=0;
+    for(let t of vTerr){avgX+=t.x;avgY+=t.y}
+    avgX=Math.floor(avgX/vTerr.length)*TERR_TILE+TERR_TILE/2;
+    avgY=Math.floor(avgY/vTerr.length)*TERR_TILE+TERR_TILE/2;
+
+    // Limpar terreno ao redor do castelo vampiro
+    for(let dy=-5;dy<=5;dy++)for(let dx=-5;dx<=5;dx++){
+        let ny=avgY+dy,nx=avgX+dx;
+        if(ny>=0&&ny<MAP_H&&nx>=0&&nx<MAP_W){
+            gs.map[ny][nx]=T.GRASS;
+            delete gs.treeNodes[nodeKey(nx,ny)];
+        }
+    }
+
+    // Colocar construções vampiras
+    gs.buildings.push(new Building(avgX-1,avgY-1,'VAMP_CASTLE'));
+    gs.buildings.push(new Building(avgX-4,avgY-1,'VAMP_LAIR'));
+    gs.buildings.push(new Building(avgX+3,avgY,'CEMETERY'));
+    gs.buildings.push(new Building(avgX-3,avgY+3,'DARK_TOWER'));
+    gs.buildings.push(new Building(avgX+3,avgY+3,'DARK_TOWER'));
+    gs.buildings.push(new Building(avgX+3,avgY-3,'DARK_TOWER'));
+}
+
+function initTerritories(){
+    gs.territories=[];
+    for(let ty=0;ty<TERR_H;ty++){
+        for(let tx=0;tx<TERR_W;tx++){
+            gs.territories.push({x:tx,y:ty,owner:OWNER.NEUTRAL,control:40,resource:1+((tx+ty)%2)});
+        }
+    }
+    let pcx=Math.floor(TERR_W/2),pcy=Math.floor(TERR_H/2);
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+        let x=clamp(pcx+dx,0,TERR_W-1),y=clamp(pcy+dy,0,TERR_H-1);
+        let t=gs.territories[terrIndex(x,y)];t.owner=OWNER.PLAYER;t.control=100;
+    }
+    for(let dy=0;dy<=1;dy++)for(let dx=0;dx<=1;dx++){
+        gs.territories[terrIndex(dx,dy)].owner=OWNER.ENEMY_A;
+        gs.territories[terrIndex(dx,dy)].control=100;
+    }
+    for(let dy=0;dy<=1;dy++)for(let dx=0;dx<=1;dx++){
+        let x=TERR_W-1-dx,y=TERR_H-1-dy;
+        gs.territories[terrIndex(x,y)].owner=OWNER.ENEMY_B;
+        gs.territories[terrIndex(x,y)].control=100;
+    }
+    // Vampires: northeast corner 2x2
+    for(let dy=0;dy<=1;dy++)for(let dx=0;dx<=1;dx++){
+        let x=TERR_W-1-dx,y=dy;
+        gs.territories[terrIndex(x,y)].owner=OWNER.VAMPIRES;
+        gs.territories[terrIndex(x,y)].control=100;
+    }
+}
+
+function initKingdoms(){
+    gs.kingdoms=[
+        {owner:OWNER.ENEMY_A,name:'Reino dos Bárbaros',gold:220,food:180,wood:170,expandCd:12,attackCd:30},
+        {owner:OWNER.ENEMY_B,name:'Reino dos Magos',gold:220,food:180,wood:170,expandCd:15,attackCd:36},
+        {owner:OWNER.VAMPIRES,name:'Reino dos Vampiros',gold:300,food:0,wood:100,expandCd:18,attackCd:25}
+    ];
+}
+
+function getOwnerTerritories(owner){
+    return gs.territories.filter(t=>t.owner===owner);
+}
+
+function spawnArmy(owner, comp, fromTerr, toTerr){
+    let start=getTerritoryCenterWorld(fromTerr.x,fromTerr.y);
+    let end=getTerritoryCenterWorld(toTerr.x,toTerr.y);
+    gs.armies.push({
+        owner,
+        x:start.x,y:start.y,
+        tx:end.x,ty:end.y,
+        speed:owner===OWNER.PLAYER?1.75:1.35,
+        comp:{SWORDSMAN:comp.SWORDSMAN||0,ARCHER:comp.ARCHER||0,SPEARMAN:comp.SPEARMAN||0},
+        targetTerritory:{x:toTerr.x,y:toTerr.y}
+    });
+}
+
+function conquerTerritory(army,territory){
+    let defenderPower=0.8;
+    let buildingsIn=gs.buildings.filter(b=>b.hp>0&&tileToTerr(b.x,b.y).x===territory.x&&tileToTerr(b.x,b.y).y===territory.y);
+    defenderPower+=buildingsIn.length*0.25;
+    let posBonus=gs.map[territory.y*TERR_TILE]?.[territory.x*TERR_TILE]===T.FOREST?0.12:0.05;
+    let atkPower=armyPower(army.comp,posBonus);
+    if(army.owner===OWNER.PLAYER) atkPower*=1+(gs.upgrades.forge*0.08);
+    // Vampire night bonus for army conquest
+    if(army.owner===OWNER.VAMPIRES&&gs.isNight) atkPower*=1.3;
+    if(army.owner===OWNER.VAMPIRES&&!gs.isNight) atkPower*=0.75;
+    if(atkPower>defenderPower){
+        let prevOwner=territory.owner;
+        territory.owner=army.owner;
+        territory.control=100;
+        addMessage((army.owner===OWNER.PLAYER?'✅ ':'⚠️ ')+'Território conquistado por '+(OWNER_NAMES[army.owner]||'desconhecido')+'!');
+        // Check if main castle of previous owner was in this territory - eliminate kingdom
+        if(prevOwner!==OWNER.NEUTRAL&&prevOwner!==OWNER.PLAYER){
+            let castleTypes=['CASTLE','VAMP_CASTLE'];
+            for(let b of buildingsIn){
+                if(castleTypes.includes(b.type)&&b.hp>0){
+                    b.hp=0;
+                    // Transfer all territories of eliminated kingdom
+                    let remaining=getOwnerTerritories(prevOwner);
+                    for(let t of remaining){t.owner=army.owner;t.control=80}
+                    addMessage('🏆 '+(OWNER_NAMES[prevOwner]||'Reino')+ ' foi conquistado!');
+                    break;
+                }
+            }
+        }
+    }else{
+        territory.control=Math.max(15,territory.control-15);
+    }
+}
+
+function updateArmies(dt){
+    for(let i=gs.armies.length-1;i>=0;i--){
+        let a=gs.armies[i];
+        let dx=a.tx-a.x,dy=a.ty-a.y;
+        let d=Math.sqrt(dx*dx+dy*dy);
+        if(d>6){
+            a.x+=(dx/d)*a.speed*TILE*dt;
+            a.y+=(dy/d)*a.speed*TILE*dt;
+        }else{
+            let tt=gs.territories[terrIndex(a.targetTerritory.x,a.targetTerritory.y)];
+            if(tt&&tt.owner!==a.owner) conquerTerritory(a,tt);
+            gs.armies.splice(i,1);
+        }
+    }
+
+    // Batalha automatica entre exercitos
+    for(let i=0;i<gs.armies.length;i++){
+        for(let j=i+1;j<gs.armies.length;j++){
+            let a=gs.armies[i],b=gs.armies[j];
+            if(a.owner===b.owner) continue;
+            if(!isAtWar(a.owner,b.owner)) continue;
+            if(dist(a.x,a.y,b.x,b.y)<28){
+                let terrA=getTerritoryByWorld(a.x,a.y);
+                let terrB=getTerritoryByWorld(b.x,b.y);
+                let aPos=(terrA&&terrA.owner===a.owner)?0.12:0.03;
+                let bPos=(terrB&&terrB.owner===b.owner)?0.12:0.03;
+                let pa=armyPower(a.comp,aPos),pb=armyPower(b.comp,bPos);
+                if(a.owner===OWNER.PLAYER) pa*=1+(gs.upgrades.forge*0.08);
+                if(b.owner===OWNER.PLAYER) pb*=1+(gs.upgrades.forge*0.08);
+                let winner=pa>=pb?a:b;
+                let loser=winner===a?b:a;
+                winner.comp.SWORDSMAN=Math.max(0,winner.comp.SWORDSMAN-Math.floor((loser.comp.SWORDSMAN||0)*0.45));
+                winner.comp.ARCHER=Math.max(0,winner.comp.ARCHER-Math.floor((loser.comp.ARCHER||0)*0.45));
+                winner.comp.SPEARMAN=Math.max(0,winner.comp.SPEARMAN-Math.floor((loser.comp.SPEARMAN||0)*0.45));
+                addExplosion((a.x+b.x)/2,(a.y+b.y)/2);
+                addMessage('⚔️ Batalha de exércitos: '+(winner.owner===OWNER.PLAYER?'Jogador venceu':'Inimigo venceu'));
+                gs.armies.splice(gs.armies.indexOf(loser),1);
+                if(armyCount(winner.comp)<=0) gs.armies.splice(gs.armies.indexOf(winner),1);
+                return;
+            }
+        }
+    }
+}
+
+function updateTerritoryEconomy(dt){
+    gs.territoryTimer+=dt;
+    if(gs.territoryTimer<6) return;
+    gs.territoryTimer=0;
+    let playerTerr=getOwnerTerritories(OWNER.PLAYER).length;
+    gs.resources.gold+=Math.floor(playerTerr*1.2);
+    gs.resources.food+=Math.floor(playerTerr*0.8);
+    gs.resources.wood+=Math.floor(playerTerr*0.7);
+}
+
+function updateKingdomAI(dt){
+    gs.aiTimer+=dt;
+    if(gs.aiTimer<1.5) return;
+    gs.aiTimer=0;
+    for(let k of gs.kingdoms){
+        k.expandCd-=1.5;k.attackCd-=1.5;
+        let isVamp=k.owner===OWNER.VAMPIRES;
+        // Vampire kingdoms are more aggressive at night
+        let aggroMod=isVamp?(gs.isNight?0.6:1.4):1;
+
+        if(k.expandCd<=0){
+            let owned=getOwnerTerritories(k.owner);
+            if(owned.length>0){
+                let from=owned[randInt(0,owned.length-1)];
+                let candidates=[];
+                let dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+                for(let d of dirs){
+                    let nx=from.x+d[0],ny=from.y+d[1];
+                    if(nx>=0&&nx<TERR_W&&ny>=0&&ny<TERR_H){
+                        let t=gs.territories[terrIndex(nx,ny)];
+                        if(t.owner!==k.owner){
+                            // Only expand into neutral or war targets
+                            if(t.owner===OWNER.NEUTRAL||isAtWar(k.owner,t.owner))
+                                candidates.push(t);
+                        }
+                    }
+                }
+                if(candidates.length>0){
+                    let to=candidates[randInt(0,candidates.length-1)];
+                    let comp=isVamp?
+                        {SWORDSMAN:randInt(4,8),ARCHER:randInt(1,3),SPEARMAN:randInt(2,5)}:
+                        {SWORDSMAN:randInt(3,7),ARCHER:randInt(2,5),SPEARMAN:randInt(2,5)};
+                    spawnArmy(k.owner,comp,from,to);
+                }
+            }
+            k.expandCd=(12+rand(0,10))*aggroMod;
+        }
+
+        if(k.attackCd<=0){
+            // Find war targets
+            let warTargets=[];
+            let allOwners=[OWNER.PLAYER,OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
+            for(let o of allOwners){
+                if(o===k.owner)continue;
+                if(isAtWar(k.owner,o)){
+                    let tt=getOwnerTerritories(o);
+                    if(tt.length>0) warTargets.push({owner:o,terrs:tt});
+                }
+            }
+            let owned=getOwnerTerritories(k.owner);
+            if(warTargets.length>0&&owned.length>0){
+                let target=warTargets[randInt(0,warTargets.length-1)];
+                let from=owned[randInt(0,owned.length-1)];
+                let to=target.terrs[randInt(0,target.terrs.length-1)];
+                let comp=isVamp?
+                    {SWORDSMAN:randInt(6,12),ARCHER:randInt(2,5),SPEARMAN:randInt(4,8)}:
+                    {SWORDSMAN:randInt(5,10),ARCHER:randInt(4,8),SPEARMAN:randInt(4,8)};
+                spawnArmy(k.owner,comp,from,to);
+                if(target.owner===OWNER.PLAYER)
+                    addMessage('⚠️ '+k.name+' enviou um exército de invasão!');
+            }
+            k.attackCd=(26+rand(0,12))*aggroMod;
+        }
+    }
+}
+
+function initRuins(){
+    gs.ruins=[];
+    let placed=0,tries=0;
+    let cx=Math.floor(MAP_W/2),cy=Math.floor(MAP_H/2);
+    while(placed<34&&tries<800){
+        tries++;
+        let tx=randInt(3,MAP_W-4),ty=randInt(3,MAP_H-4);
+        let ter=gs.map[ty][tx];
+        if(ter===T.WATER||ter===T.MOUNTAIN||ter===T.FOREST) continue;
+        if(dist(tx,ty,cx,cy)<15) continue;
+        if(gs.ruins.some(r=>dist(tx,ty,r.x,r.y)<4)) continue;
+        gs.ruins.push({x:tx,y:ty,variant:hash(tx,ty)%SC.ruins.length,size:(hash(ty,tx)%2===0)?2:1});
+        placed++;
+    }
+}
+
+function nodeKey(x,y){return x+'|'+y}
+function findNearestNode(nodes,tx,ty,maxDist){
+    let best=null,bestD=Infinity;
+    for(let k in nodes){
+        let n=nodes[k];
+        if(!n||n.hp<=0)continue;
+        let d=Math.abs(n.x-tx)+Math.abs(n.y-ty);
+        if(d<=maxDist&&d<bestD){best=n;bestD=d;}
+    }
+    return best;
+}
+
+function initResourceNodes(){
+    gs.treeNodes={};
+    gs.stoneNodes={};
+    for(let y=0;y<MAP_H;y++)for(let x=0;x<MAP_W;x++){
+        let ter=gs.map[y][x];
+        if(ter===T.FOREST&&Math.random()<0.55){
+            gs.treeNodes[nodeKey(x,y)]={x,y,hp:rand(3,6),variant:hash(x,y)%SC.pngTrees.length};
+        }
+        if(ter===T.MOUNTAIN&&Math.random()<0.45){
+            gs.stoneNodes[nodeKey(x,y)]={x,y,hp:rand(5,9),variant:hash(y,x)%SC.rockNodes.length,size:(hash(x*3,y*7)%2===0)?1:2};
+        }
+    }
+}
+
+function unitsToArmy(units,targetOwner){
+    if(!units.length) return;
+    let comp={SWORDSMAN:0,ARCHER:0,SPEARMAN:0};
+    let mx=0,my=0;
+    for(let u of units){comp[u.type]=(comp[u.type]||0)+1;mx+=u.x;my+=u.y;}
+    mx/=units.length;my/=units.length;
+    let from=worldToTerr(mx,my);
+    let to=targetOwner||from;
+    spawnArmy(OWNER.PLAYER,comp,{x:from.x,y:from.y},{x:to.x,y:to.y});
+    gs.units=gs.units.filter(u=>!units.includes(u));
+    gs.selectedUnits=[];
+    addMessage('🚩 Exército do jogador mobilizado!');
+}
+
+// ═══════════════════════════════════════════════════════════
+// SISTEMAS DE POPULAÇÃO E ECONOMIA
+// ═══════════════════════════════════════════════════════════
+function getPopCap(){
+    return gs.buildings.reduce((s,b)=>b.hp>0?(s+(b.def.popCap||0)):s,0);
+}
+function getWorkersNeeded(){
+    return gs.buildings.reduce((s,b)=>b.hp>0?(s+(b.def.workers||0)):s,0);
+}
+function getAvailablePop(){
+    let used=gs.units.filter(u=>u.alive).length;
+    return gs.population-used;
+}
+function getProductionMultiplier(){
+    if(gs.hunger>=3)return 0.25;
+    if(gs.hunger>=2)return 0.5;
+    if(gs.hunger>=1)return 0.75;
+    return 1;
+}
+function getCombatMultiplier(){
+    if(gs.hunger>=3)return 0.5;
+    if(gs.hunger>=2)return 0.7;
+    if(gs.hunger>=1)return 0.85;
+    return 1;
+}
+function updatePopulation(dt){
+    gs.popCap=getPopCap();
+    gs.popGrowthTimer+=dt;
+    if(gs.popGrowthTimer>=8){
+        gs.popGrowthTimer=0;
+        if(gs.population<gs.popCap&&gs.resources.food>0&&gs.hunger<2){
+            gs.population++;
+        }
+    }
+}
+function updateHunger(dt){
+    gs.foodConsumptionTimer+=dt;
+    if(gs.foodConsumptionTimer>=5){
+        gs.foodConsumptionTimer=0;
+        let consumption=Math.ceil(gs.population*0.3);
+        gs.resources.food-=consumption;
+        if(gs.resources.food<0)gs.resources.food=0;
+        let prevHunger=gs.hunger;
+        if(gs.resources.food<=0){
+            gs.hungerTimer+=5;
+            if(gs.hungerTimer>30)gs.hunger=3;
+            else if(gs.hungerTimer>20)gs.hunger=2;
+            else if(gs.hungerTimer>10)gs.hunger=1;
+        }else{
+            gs.hungerTimer=Math.max(0,gs.hungerTimer-5);
+            if(gs.hungerTimer<=0)gs.hunger=0;
+            else if(gs.hungerTimer<=10)gs.hunger=Math.min(gs.hunger,1);
+            else if(gs.hungerTimer<=20)gs.hunger=Math.min(gs.hunger,2);
+        }
+        if(gs.hunger>prevHunger){
+            if(gs.hunger>=3)addMessage('💀 Fome extrema! Pessoas estão morrendo!');
+            else if(gs.hunger>=2)addMessage('⚠️ Seu povo está com fome!');
+            else if(gs.hunger>=1)addMessage('⚠️ Reservas de comida baixas!');
+        }
+        if(gs.hunger>=3&&gs.population>1){
+            gs.population--;
+        }
+    }
+}
+function getProductionRates(){
+    let mult=getProductionMultiplier();
+    let wNeeded=getWorkersNeeded();
+    let wAvail=getAvailablePop();
+    let wRatio=wNeeded>0?Math.min(1,Math.max(0,wAvail/wNeeded)):1;
+    let rates={gold:0,food:0,wood:0,stone:0};
+    for(let b of gs.buildings){
+        if(b.hp<=0||!b.def.produces)continue;
+        for(let res in b.def.produces)rates[res]+=b.def.produces[res]*mult*wRatio;
+    }
+    rates.gold=Math.round(rates.gold*12);rates.food=Math.round(rates.food*12);rates.wood=Math.round(rates.wood*12);rates.stone=Math.round(rates.stone*12);
+    let pTerr=getOwnerTerritories(OWNER.PLAYER).length;
+    rates.gold+=Math.round(pTerr*1.2*10);
+    rates.food+=Math.round(pTerr*0.8*10);
+    rates.wood+=Math.round(pTerr*0.7*10);
+    rates.food-=Math.ceil(gs.population*0.3)*12;
+    return rates;
+}
+
+// ═══════════════════════════════════════════════════════════
+// SAVE / LOAD
+// ═══════════════════════════════════════════════════════════
+function saveGame(){
+    try{
+        let mapStr=gs.map.map(r=>r.join('')).join('\n');
+        let data={
+            resources:gs.resources,
+            buildings:gs.buildings.filter(b=>b.hp>0).map(b=>({x:b.x,y:b.y,type:b.type,hp:b.hp,maxHp:b.maxHp})),
+            units:gs.units.filter(u=>u.alive).map(u=>({x:u.x,y:u.y,type:u.type,hp:u.hp})),
+            king:{x:gs.king.x,y:gs.king.y,hp:gs.king.hp},
+            waveNumber:gs.waveNumber,waveTimer:gs.waveTimer,gameTime:gs.gameTime,
+            population:gs.population,hunger:gs.hunger,hungerTimer:gs.hungerTimer,
+            map:mapStr,
+            treeNodes:gs.treeNodes,
+            stoneNodes:gs.stoneNodes,
+            upgrades:gs.upgrades,
+            territories:gs.territories,
+            kingdoms:gs.kingdoms,
+            armies:gs.armies,
+            diplomacy:gs.diplomacy,
+            dayNightTimer:gs.dayNightTimer,
+            isNight:gs.isNight,
+            eventTimer:gs.eventTimer
+        };
+        localStorage.setItem('medievalKingdom_save',JSON.stringify(data));
+        addMessage('💾 Jogo salvo com sucesso!');
+    }catch(er){addMessage('❌ Erro ao salvar: '+er.message)}
+}
+function loadGame(){
+    try{
+        let raw=localStorage.getItem('medievalKingdom_save');
+        if(!raw){addMessage('❌ Nenhum save encontrado!');return}
+        let data=JSON.parse(raw);
+        gs.map=data.map.split('\n').map(r=>r.split('').map(Number));
+        gs.resources={gold:data.resources.gold||0,food:data.resources.food||0,wood:data.resources.wood||0,stone:data.resources.stone||0};
+        gs.upgrades=data.upgrades||{forge:0,masonry:0};
+        gs.buildings=data.buildings.map(b=>{let nb=new Building(b.x,b.y,b.type);nb.maxHp=b.maxHp||nb.maxHp;nb.hp=b.hp;return nb});
+        gs.units=data.units.map(u=>{let nu=new PlayerUnit(u.x,u.y,u.type);nu.hp=u.hp;return nu});
+        gs.king.x=data.king.x;gs.king.y=data.king.y;gs.king.hp=data.king.hp;gs.king.alive=true;
+        gs.waveNumber=data.waveNumber;gs.waveTimer=data.waveTimer;gs.gameTime=data.gameTime;
+        gs.population=data.population||4;gs.hunger=data.hunger||0;gs.hungerTimer=data.hungerTimer||0;
+        gs.treeNodes=data.treeNodes||{};
+        gs.stoneNodes=data.stoneNodes||{};
+        if(Object.keys(gs.treeNodes).length===0&&Object.keys(gs.stoneNodes).length===0) initResourceNodes();
+        gs.territories=(data.territories&&data.territories.length)?data.territories:gs.territories;
+        gs.kingdoms=(data.kingdoms&&data.kingdoms.length)?data.kingdoms:gs.kingdoms;
+        gs.armies=data.armies||[];
+        gs.diplomacy=data.diplomacy||{};
+        gs.dayNightTimer=data.dayNightTimer||0;
+        gs.isNight=data.isNight||false;
+        gs.eventTimer=data.eventTimer||0;
+        if(Object.keys(gs.diplomacy).length===0) initDiplomacy();
+        gs.enemies=[];gs.particles=[];gs.projectiles=[];gs.explosions=[];gs.selectedUnits=[];
+        gs.selectedBuilding=null;gs.selectedBuildings=[];gs.moveMode=false;gs.movingBuilding=null;gs.moveSelectionMode=false;
+        gs.selectedArmies=[];gs.movingBuildings=[];
+        gs.showBuildingMenu=false;gs.showBuildMenu=false;gs.showRecruitMenu=false;gs.showDiplomacy=false;
+        addMessage('📂 Jogo carregado com sucesso!');
+    }catch(er){addMessage('❌ Erro ao carregar: '+er.message)}
+}
+
+// ═══════════════════════════════════════════════════════════
+// VENDER / MOVER CONSTRUÇÕES
+// ═══════════════════════════════════════════════════════════
+function sellBuilding(b){
+    if(!b||b.type==='CASTLE'){addMessage('❌ Não é possível vender o Castelo!');return}
+    let cost=b.def.cost;
+    gs.resources.gold+=Math.floor((cost.gold||0)*0.5);
+    gs.resources.food+=Math.floor((cost.food||0)*0.5);
+    gs.resources.wood+=Math.floor((cost.wood||0)*0.5);
+    gs.resources.stone+=Math.floor((cost.stone||0)*0.5);
+    addParticle(b.x*TILE+b.def.w*TILE/2,b.y*TILE,'+50% recursos','#FFD700');
+    addMessage('💰 '+b.def.name+' vendido!');
+    b.hp=0;
+    gs.selectedBuilding=null;gs.showBuildingMenu=false;
+}
+function startMoveBuilding(b){
+    if(!b||b.type==='CASTLE'){addMessage('❌ Não é possível mover o Castelo!');return}
+    gs.moveMode=true;gs.movingBuilding=b;
+    gs.showBuildingMenu=false;gs.buildMode=null;
+    gs.showBuildMenu=false;gs.showRecruitMenu=false;
+    addMessage('🔄 Clique no novo local para mover '+b.def.name);
+}
+
+function startMoveSelectedBuildings(){
+    if(gs.selectedBuildings.length===0) return;
+    if(!gs.selectedBuildings.every(b=>b.type==='WALL')){
+        addMessage('❌ Movimento em grupo disponível apenas para muros.');
+        return;
+    }
+    let minX=Math.min(...gs.selectedBuildings.map(b=>b.x));
+    let minY=Math.min(...gs.selectedBuildings.map(b=>b.y));
+    gs.moveSelectionMode=true;
+    gs.movingBuildings=gs.selectedBuildings.map(b=>({building:b,ox:b.x-minX,oy:b.y-minY}));
+    gs.showBuildMenu=false;gs.showRecruitMenu=false;gs.showBuildingMenu=false;
+    addMessage('🧱 Movimento em grupo: clique para reposicionar os muros selecionados.');
+}
+
+function canPlaceMovingGroup(anchorTile){
+    for(let mb of gs.movingBuildings){
+        let b=mb.building;
+        let tx=anchorTile.x+mb.ox,ty=anchorTile.y+mb.oy;
+        if(!canBuild(tx,ty,b.def,b)) return false;
+    }
+    return true;
+}
+
+function placeMovingGroup(anchorTile){
+    for(let mb of gs.movingBuildings){
+        mb.building.x=anchorTile.x+mb.ox;
+        mb.building.y=anchorTile.y+mb.oy;
+    }
+    gs.moveSelectionMode=false;
+    gs.movingBuildings=[];
+    addMessage('✅ Linha de muralha reposicionada.');
+}
+
+// ═══════════════════════════════════════════════════════════
+// ONDAS DE INIMIGOS
+// ═══════════════════════════════════════════════════════════
+function spawnWave(){
+    gs.waveNumber++;
+    let count=3+gs.waveNumber*2;
+    let types=['soldier','bandit','creature'];
+    // At night, some wave enemies are vampires
+    if(gs.isNight&&gs.waveNumber>=2) types.push('vamp_warrior','giant_bat');
+    if(gs.isNight&&gs.waveNumber>=4) types.push('vamp_lord');
+
+    let side=randInt(0,3);
+    for(let i=0;i<count;i++){
+        let x,y,off=rand(-200,200);
+        switch(side){
+            case 0:x=rand(TILE*5,(MAP_W-5)*TILE);y=TILE*3;break;
+            case 1:x=rand(TILE*5,(MAP_W-5)*TILE);y=(MAP_H-3)*TILE;break;
+            case 2:x=TILE*3;y=rand(TILE*5,(MAP_H-5)*TILE);break;
+            case 3:x=(MAP_W-3)*TILE;y=rand(TILE*5,(MAP_H-5)*TILE);break;
+        }
+        x=clamp(x+off*0.3,TILE*2,(MAP_W-2)*TILE);
+        y=clamp(y+off*0.3,TILE*2,(MAP_H-2)*TILE);
+        let type=types[randInt(0,Math.min(gs.waveNumber-1,types.length-1))];
+        gs.enemies.push(new EnemyUnit(x,y,type));
+    }
+    let vampMsg=gs.isNight?' (com vampiros!)':'';
+    addMessage('⚠️ Onda '+gs.waveNumber+': '+count+' inimigos se aproximam!'+vampMsg);
+    gs.screenShake=0.5;
+}
+
+// ═══════════════════════════════════════════════════════════
+// RECURSOS
+// ═══════════════════════════════════════════════════════════
+function updateResources(dt){
+    gs.resourceTimer+=dt;
+    if(gs.resourceTimer>=5){
+        gs.resourceTimer=0;
+        let mult=getProductionMultiplier();
+        let wNeeded=getWorkersNeeded();
+        let wAvail=getAvailablePop();
+        let wRatio=wNeeded>0?Math.min(1,Math.max(0,wAvail/wNeeded)):1;
+        for(let b of gs.buildings){
+            if(b.hp<=0||!b.def.produces)continue;
+
+            // Serraria coleta madeira de arvores ao redor (arvores quebram ao esgotar)
+            if(b.type==='LUMBER'){
+                let bx=b.x+Math.floor(b.def.w/2),by=b.y+Math.floor(b.def.h/2);
+                let tNode=findNearestNode(gs.treeNodes,bx,by,7);
+                if(tNode){
+                    let gather=Math.max(1,Math.floor((1.2+b.def.produces.wood)*mult*wRatio));
+                    gs.resources.wood+=gather;
+                    tNode.hp-=1.5*wRatio;
+                    addParticle((b.x+0.5)*TILE,b.y*TILE,'+'+gather+' wood','#C9A66B');
+                    if(tNode.hp<=0){
+                        delete gs.treeNodes[nodeKey(tNode.x,tNode.y)];
+                        gs.map[tNode.y][tNode.x]=T.GRASS;
+                        addParticle((tNode.x+0.5)*TILE,(tNode.y+0.3)*TILE,'🌲 caiu','#8BC34A');
+                    }
+                }
+                continue;
+            }
+
+            // Pedreira minera pedra de rochas
+            if(b.type==='QUARRY'){
+                let bx=b.x+Math.floor(b.def.w/2),by=b.y+Math.floor(b.def.h/2);
+                let sNode=findNearestNode(gs.stoneNodes,bx,by,8);
+                if(sNode){
+                    let gather=Math.max(1,Math.floor((1+b.def.produces.stone)*mult*wRatio));
+                    gs.resources.stone+=gather;
+                    sNode.hp-=1.2*wRatio;
+                    addParticle((b.x+0.5)*TILE,b.y*TILE,'+'+gather+' stone','#B0BEC5');
+                    if(sNode.hp<=0){
+                        delete gs.stoneNodes[nodeKey(sNode.x,sNode.y)];
+                        addParticle((sNode.x+0.5)*TILE,(sNode.y+0.3)*TILE,'⛏️ esgotada','#90A4AE');
+                    }
+                }
+                continue;
+            }
+
+            for(let res in b.def.produces){
+                let amount=Math.floor(b.def.produces[res]*mult*wRatio);
+                if(amount>0){
+                    gs.resources[res]+=amount;
+                    let bx=b.x*TILE+(b.def.w*TILE)/2,by=b.y*TILE;
+                    let col=res==='gold'?'#FFD700':res==='food'?'#2ecc71':res==='stone'?'#B0BEC5':'#DEB887';
+                    addParticle(bx,by,'+'+amount+' '+res,col);
+                }
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// INPUT HANDLERS
+// ═══════════════════════════════════════════════════════════
+window.addEventListener('keydown',(e)=>{
+    keys[e.code]=true;
+
+    if(gs.phase==='menu'){gs.phase='playing';return}
+    if(gs.phase!=='playing')return;
+
+    if(e.code==='KeyO'){
+        gs.showGuide=!gs.showGuide;gs.showDiplomacy=false;
+        if(gs.showGuide) gs.guideQuery='';
+        return;
+    }
+    if(e.code==='KeyN'){
+        gs.showDiplomacy=!gs.showDiplomacy;gs.showGuide=false;
+        return;
+    }
+
+    if(gs.showGuide||gs.showDiplomacy){
+        if(e.code==='Escape'){gs.showGuide=false;gs.showDiplomacy=false;return}
+        if(gs.showGuide){
+            if(e.code==='Backspace'){e.preventDefault();gs.guideQuery=gs.guideQuery.slice(0,-1);return}
+            if(e.code==='Space'){gs.guideQuery+=' ';return}
+            if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
+                gs.guideQuery+=e.key;
+            }
+        }
+        return;
+    }
+
+    // Save / Load
+    if(e.code==='F5'){e.preventDefault();saveGame();return}
+    if(e.code==='F9'){e.preventDefault();loadGame();return}
+
+    if(e.code==='KeyB'){gs.showBuildMenu=!gs.showBuildMenu;gs.showRecruitMenu=false;gs.showBuildingMenu=false;gs.selectedBuilding=null;if(!gs.showBuildMenu)gs.buildMode=null}
+    if(e.code==='KeyR'){gs.showRecruitMenu=!gs.showRecruitMenu;gs.showBuildMenu=false;gs.showBuildingMenu=false;gs.selectedBuilding=null;gs.buildMode=null}
+    if(e.code==='Escape'){
+        gs.buildMode=null;gs.showBuildMenu=false;gs.showRecruitMenu=false;gs.showDiplomacy=false;
+        gs.selectedUnits.forEach(u=>u.selected=false);gs.selectedUnits=[];
+        gs.selectedBuilding=null;gs.selectedBuildings=[];gs.showBuildingMenu=false;
+        gs.moveMode=false;gs.movingBuilding=null;gs.moveSelectionMode=false;gs.movingBuildings=[];
+        gs.selectedArmies=[];gs.dragBuilding=null;gs.isDragging=false;
+    }
+    if(e.code==='KeyP') gs.paused=!gs.paused;
+    if(e.code==='KeyU'){upgradeForge();return}
+    if(e.code==='KeyJ'){upgradeMasonry();return}
+    if(e.code==='KeyF'&&gs.phase==='gameover'){location.reload()}
+    if(e.code==='KeyG'&&gs.selectedUnits.length>0){
+        let t=worldToTerr(mouse.wx,mouse.wy);
+        unitsToArmy([...gs.selectedUnits],{x:t.x,y:t.y});
+    }
+
+    // Building actions
+    if(gs.showBuildingMenu&&gs.selectedBuilding){
+        if(e.code==='KeyM') startMoveBuilding(gs.selectedBuilding);
+        if(e.code==='KeyV') sellBuilding(gs.selectedBuilding);
+    }
+    if(e.code==='KeyM'&&gs.selectedBuildings.length>1) startMoveSelectedBuildings();
+
+    if(gs.showBuildMenu){
+        let n=parseInt(e.key);
+        if(n>=1&&n<=BUILD_LIST.length) gs.buildMode=BUILD_LIST[n-1];
+    }
+    if(gs.showRecruitMenu){
+        let n=parseInt(e.key);
+        if(n>=1&&n<=UNIT_LIST.length) recruitUnit(UNIT_LIST[n-1]);
+    }
+});
+window.addEventListener('keyup',(e)=>{keys[e.code]=false});
+
+canvas.addEventListener('mousemove',(e)=>{
+    mouse.x=e.clientX;mouse.y=e.clientY;
+    updateMouseWorld();
+    if(selBox){selBox.x2=mouse.wx;selBox.y2=mouse.wy}
+    if(gs.dragBuilding&&!gs.isDragging&&mouse.left){
+        let dd=Math.abs(mouse.x-gs.dragStartMX)+Math.abs(mouse.y-gs.dragStartMY);
+        if(dd>8)gs.isDragging=true;
+    }
+    if(gs.panning&&mouse.middle){
+        gs.cameraOffset.x-=(mouse.x-gs.panLastX)/gs.zoom;
+        gs.cameraOffset.y-=(mouse.y-gs.panLastY)/gs.zoom;
+        gs.panLastX=mouse.x;gs.panLastY=mouse.y;
+        updateCamera();
+        updateMouseWorld();
+    }
+});
+
+canvas.addEventListener('mousedown',(e)=>{
+    e.preventDefault();
+    if(gs.phase==='menu'){gs.phase='playing';return}
+    if(gs.phase!=='playing'||gs.paused)return;
+    if(gs.showGuide)return;
+    if(gs.showDiplomacy){
+        // Allow UI button clicks in diplomacy panel
+        if(e.button===0){mouse.left=true;isClickUI(mouse.x,mouse.y)}
+        return;
+    }
+
+    if(e.button===1){
+        mouse.middle=true;
+        gs.panning=true;
+        gs.panLastX=mouse.x;gs.panLastY=mouse.y;
+        return;
+    }
+
+    if(e.button===0){
+        mouse.left=true;
+        if(isClickUI(mouse.x,mouse.y))return;
+
+        if(gs.moveSelectionMode&&gs.movingBuildings.length>0){
+            let tile=w2t(mouse.wx,mouse.wy);
+            if(canPlaceMovingGroup(tile)){
+                placeMovingGroup(tile);
+                addParticle(mouse.wx,mouse.wy,'✓','#00FF00');
+            }else addMessage('❌ Não há espaço para todos os muros.');
+            return;
+        }
+
+        // Move mode - reposition building
+        if(gs.moveMode&&gs.movingBuilding){
+            let tile=w2t(mouse.wx,mouse.wy);let def=gs.movingBuilding.def;
+            if(canBuild(tile.x,tile.y,def,gs.movingBuilding)){
+                gs.movingBuilding.x=tile.x;gs.movingBuilding.y=tile.y;
+                addMessage('✅ '+def.name+' movido!');
+                addParticle(mouse.wx,mouse.wy,'✓','#00FF00');
+                gs.moveMode=false;gs.movingBuilding=null;gs.selectedBuilding=null;
+            } else {addMessage('❌ Local inválido!')}
+            return;
+        }
+
+        if(gs.buildMode){
+            let tile=w2t(mouse.wx,mouse.wy);let def=BUILD[gs.buildMode];
+            if(canBuild(tile.x,tile.y,def)&&canAfford(def.cost)){
+                spend(def.cost);
+                gs.buildings.push(new Building(tile.x,tile.y,gs.buildMode));
+                addMessage('✅ '+def.name+' construído!');
+                addParticle(mouse.wx,mouse.wy,'✓','#00FF00');
+            } else if(!canAfford(def.cost)){addMessage('❌ Recursos insuficientes!')}
+            else{addMessage('❌ Local inválido!')}
+        } else {
+            // Check for building drag
+            let dragB=null;
+            for(let b of gs.buildings){
+                if(b.hp<=0||b.type==='CASTLE')continue;
+                let bx=b.x*TILE,by=b.y*TILE,bw=b.def.w*TILE,bh=b.def.h*TILE;
+                if(mouse.wx>=bx&&mouse.wx<bx+bw&&mouse.wy>=by&&mouse.wy<by+bh){dragB=b;break}
+            }
+            gs.dragBuilding=dragB;gs.isDragging=false;
+            gs.dragStartMX=mouse.x;gs.dragStartMY=mouse.y;
+            selBox={x1:mouse.wx,y1:mouse.wy,x2:mouse.wx,y2:mouse.wy};
+        }
+    }
+    if(e.button===2){
+        mouse.right=true;
+        if(gs.selectedBuildings.length>1&&gs.selectedBuildings.every(b=>b.type==='WALL')){
+            if(!gs.moveSelectionMode) startMoveSelectedBuildings();
+            let tile=w2t(mouse.wx,mouse.wy);
+            if(canPlaceMovingGroup(tile)){
+                placeMovingGroup(tile);
+                addParticle(mouse.wx,mouse.wy,'🧱','#FFD700');
+            }
+        }
+        if(gs.selectedArmies.length>0){
+            let tt=worldToTerr(mouse.wx,mouse.wy);
+            let target={x:tt.x,y:tt.y};
+            let to=getTerritoryCenterWorld(target.x,target.y);
+            for(let a of gs.selectedArmies){a.tx=to.x;a.ty=to.y;a.targetTerritory=target}
+            addParticle(mouse.wx,mouse.wy,'⚑','#00CCFF');
+        }
+        if(gs.selectedUnits.length>0){
+            let tgtEnemy=null;
+            for(let en of gs.enemies){
+                if(!en.alive)continue;
+                if(dist(mouse.wx,mouse.wy,en.x,en.y)<TILE){tgtEnemy=en;break}
+            }
+            for(let i=0;i<gs.selectedUnits.length;i++){
+                let u=gs.selectedUnits[i];
+                if(tgtEnemy){u.targetEnemy=tgtEnemy;u.moveTarget=null}
+                else{
+                    let angle=(i/gs.selectedUnits.length)*Math.PI*2;
+                    let spread=Math.min(gs.selectedUnits.length*8,50);
+                    u.moveTarget={x:mouse.wx+Math.cos(angle)*spread,y:mouse.wy+Math.sin(angle)*spread};
+                    u.targetEnemy=null;
+                }
+            }
+            addParticle(mouse.wx,mouse.wy,'⚑','#00FF00');
+        }
+    }
+});
+
+canvas.addEventListener('mouseup',(e)=>{
+    if(gs.showGuide)return;
+    if(e.button===1){
+        mouse.middle=false;
+        gs.panning=false;
+        return;
+    }
+    if(e.button===0){
+        mouse.left=false;
+        // Handle building drag
+        if(gs.isDragging&&gs.dragBuilding){
+            let tile=w2t(mouse.wx,mouse.wy);let def=gs.dragBuilding.def;
+            if(canBuild(tile.x,tile.y,def,gs.dragBuilding)){
+                gs.dragBuilding.x=tile.x;gs.dragBuilding.y=tile.y;
+                addMessage('✅ '+def.name+' movido!');
+                addParticle(mouse.wx,mouse.wy,'✓','#00FF00');
+            }else{addMessage('❌ Local inválido!')}
+            gs.dragBuilding=null;gs.isDragging=false;selBox=null;return;
+        }
+        gs.dragBuilding=null;gs.isDragging=false;
+        if(selBox&&!gs.buildMode){
+            gs.selectedUnits.forEach(u=>u.selected=false);gs.selectedUnits=[];
+            gs.selectedArmies=[];
+            gs.selectedBuildings=[];
+            let x1=Math.min(selBox.x1,selBox.x2),y1=Math.min(selBox.y1,selBox.y2);
+            let x2=Math.max(selBox.x1,selBox.x2),y2=Math.max(selBox.y1,selBox.y2);
+
+            if((x2-x1)*(y2-y1)<200){
+                // Click simples
+                let md=TILE*1.5,near=null;
+                for(let u of gs.units){if(!u.alive)continue;let d=dist(mouse.wx,mouse.wy,u.x,u.y);if(d<md){md=d;near=u}}
+                if(near){
+                    near.selected=true;gs.selectedUnits=[near];
+                    gs.selectedBuilding=null;gs.selectedBuildings=[];gs.showBuildingMenu=false;gs.selectedArmies=[];
+                }
+                if(!near){
+                    let nearArmy=gs.armies.find(a=>a.owner===OWNER.PLAYER&&dist(a.x,a.y,mouse.wx,mouse.wy)<18);
+                    if(nearArmy){gs.selectedArmies=[nearArmy]}
+                }
+                // Verificar click em construção
+                if(!near){
+                    let clickedBuilding=null;
+                    for(let b of gs.buildings){
+                        if(b.hp<=0)continue;
+                        let bx=b.x*TILE,by=b.y*TILE,bw=b.def.w*TILE,bh=b.def.h*TILE;
+                        if(mouse.wx>=bx&&mouse.wx<bx+bw&&mouse.wy>=by&&mouse.wy<by+bh){clickedBuilding=b;break}
+                    }
+                    if(clickedBuilding){
+                        gs.selectedBuilding=clickedBuilding;gs.showBuildingMenu=true;
+                        gs.selectedBuildings=[clickedBuilding];
+                        gs.selectedArmies=[];
+                        gs.showBuildMenu=false;gs.showRecruitMenu=false;
+                        if(clickedBuilding.type==='BARRACKS') gs.showRecruitMenu=true;
+                    } else {
+                        gs.selectedBuilding=null;gs.selectedBuildings=[];gs.showBuildingMenu=false;
+                    }
+                }
+            } else {
+                // Seleção por caixa
+                for(let u of gs.units){
+                    if(!u.alive)continue;
+                    if(u.x>=x1&&u.x<=x2&&u.y>=y1&&u.y<=y2){u.selected=true;gs.selectedUnits.push(u)}
+                }
+                for(let a of gs.armies){
+                    if(a.owner!==OWNER.PLAYER) continue;
+                    if(a.x>=x1&&a.x<=x2&&a.y>=y1&&a.y<=y2) gs.selectedArmies.push(a);
+                }
+                for(let b of gs.buildings){
+                    if(b.hp<=0) continue;
+                    let bx=b.x*TILE,by=b.y*TILE,bw=b.def.w*TILE,bh=b.def.h*TILE;
+                    if(bx>=x1&&by>=y1&&bx+bw<=x2&&by+bh<=y2) gs.selectedBuildings.push(b);
+                }
+                if(gs.selectedBuildings.length===1){gs.selectedBuilding=gs.selectedBuildings[0];gs.showBuildingMenu=true}
+            }
+            selBox=null;
+        }
+    }
+    if(e.button===2) mouse.right=false;
+});
+
+canvas.addEventListener('contextmenu',(e)=>e.preventDefault());
+canvas.addEventListener('wheel',(e)=>{
+    e.preventDefault();
+    if(gs.phase!=='playing'||gs.showGuide||gs.showDiplomacy)return;
+    let oldZoom=gs.zoom;
+    gs.zoom=clamp(gs.zoom+(e.deltaY<0?0.1:-0.1),0.7,2.2);
+    if(gs.zoom===oldZoom)return;
+    let oldWX=mouse.wx,oldWY=mouse.wy;
+    updateCamera();
+    gs.cameraOffset.x+=oldWX-(mouse.x/gs.zoom+gs.camera.x);
+    gs.cameraOffset.y+=oldWY-(mouse.y/gs.zoom+gs.camera.y);
+    updateCamera();
+    updateMouseWorld();
+},{passive:false});
+
+function isClickUI(mx,my){
+    for(let b of uiButtons){
+        if(mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h){if(b.fn)b.fn();return true}
+    }
+    return false;
+}
+
+// ═══════════════════════════════════════════════════════════
+// RENDERIZAÇÃO
+// ═══════════════════════════════════════════════════════════
+function renderTerrain(){
+    let view=getViewSize();
+    let cols=Math.ceil(view.w/TILE)+2,rows=Math.ceil(view.h/TILE)+2;
+    let stx=Math.floor(gs.camera.x/TILE),sty=Math.floor(gs.camera.y/TILE);
+    let ox=-(gs.camera.x%TILE),oy=-(gs.camera.y%TILE);
+
+    for(let row=-1;row<rows;row++){
+        for(let col=-1;col<cols;col++){
+            let tx=stx+col,ty=sty+row;
+            let dx=col*TILE+ox,dy=row*TILE+oy;
+
+            if(tx<0||tx>=MAP_W||ty<0||ty>=MAP_H){
+                ctx.fillStyle='#0a0a1a';ctx.fillRect(dx,dy,TILE,TILE);continue;
+            }
+
+            let ter=gs.map[ty][tx];
+            let cols=TERRAIN_COLORS[ter];
+            ctx.fillStyle=cols[hash(tx,ty)%3];
+            ctx.fillRect(dx,dy,TILE,TILE);
+
+            let terr=getTerritoryByTile(tx,ty);
+            if(terr){
+                ctx.fillStyle=OWNER_COLOR[terr.owner]||OWNER_COLOR[OWNER.NEUTRAL];
+                ctx.fillRect(dx,dy,TILE,TILE);
+            }
+
+            // Detalhes de terreno
+            if(ter===T.FOREST){
+                let treeNode=gs.treeNodes[nodeKey(tx,ty)];
+                if(treeNode){
+                    let treeImg=SC.pngTrees[treeNode.variant%SC.pngTrees.length];
+                    if(treeImg&&treeImg.complete&&treeImg.naturalWidth){
+                        let tw=treeImg.naturalWidth,ts=tw>100?TILE*2:TILE+10;
+                        ctx.drawImage(treeImg,dx+TILE/2-ts/2,dy+TILE-ts,ts,ts);
+                    }else{
+                        let tf=hash(tx,ty)%3;
+                        ctx.drawImage(SC.tree[tf],dx,dy);
+                    }
+                }
+            }
+            if(ter===T.MOUNTAIN){
+                ctx.drawImage(SC.rock,dx,dy);
+            }
+            if(ter===T.GRASS){
+                let det=hash(tx*3,ty*5)%12;
+                if(det<2){ctx.fillStyle='#5aaa4f';ctx.fillRect(dx+(hash(tx,ty)%20),dy+(hash(ty,tx)%20),3,5)}
+                if(det===3){ctx.fillStyle='#e8d44d';ctx.fillRect(dx+10,dy+12,3,3)}
+                if(det===4){ctx.fillStyle='#C66';ctx.fillRect(dx+16,dy+8,3,3)} // flor
+            }
+            if(ter===T.WATER){
+                let w=Math.sin(gs.gameTime*2+tx*0.5+ty*0.3)*3;
+                ctx.fillStyle='rgba(255,255,255,0.12)';
+                ctx.fillRect(dx+6+w,dy+12,10,2);
+                ctx.fillRect(dx+14-w,dy+20,8,2);
+            }
+            if(ter===T.ROAD){
+                ctx.fillStyle='#6B5345';
+                ctx.fillRect(dx+4,dy+14,6,3);ctx.fillRect(dx+18,dy+6,5,3);
+            }
+            if(ter===T.FIELD){
+                let det=hash(tx*2,ty*3)%4;
+                if(det<2){ctx.fillStyle='#90A030';ctx.fillRect(dx+det*8,dy+det*6,4,6)}
+            }
+
+            let sNode=gs.stoneNodes[nodeKey(tx,ty)];
+            if(sNode){
+                let img=SC.rockNodes[sNode.variant%SC.rockNodes.length];
+                if(img&&img.complete&&img.naturalWidth){
+                    let size=sNode.size===2?TILE*2:TILE;
+                    ctx.drawImage(img,dx+TILE/2-size/2,dy+TILE-size,size,size);
+                }
+            }
+
+            let ruin=gs.ruins.find(r=>r.x===tx&&r.y===ty);
+            if(ruin){
+                let img=SC.ruins[ruin.variant];
+                if(img&&img.complete&&img.naturalWidth){
+                    let size=ruin.size===2?TILE*2:TILE;
+                    ctx.drawImage(img,dx+TILE/2-size/2,dy+TILE-size,size,size);
+                }
+            }
+        }
+    }
+
+    // Grid sutil no modo construção/mover
+    if(gs.buildMode||gs.moveMode||gs.isDragging){
+        ctx.strokeStyle='rgba(255,255,255,0.08)';ctx.lineWidth=1;
+        for(let row=-1;row<rows;row++){
+            for(let col=-1;col<cols;col++){
+                ctx.strokeRect(col*TILE+ox,row*TILE+oy,TILE,TILE);
+            }
+        }
+    }
+}
+
+function renderBuildings(){
+    // Ordenar por Y para depth sort
+    let sorted=[...gs.buildings].filter(b=>b.hp>0).sort((a,b)=>a.y-b.y);
+    for(let b of sorted) b.draw();
+}
+
+function renderEntities(){
+    // Combinar todas entidades para depth sort
+    let all=[];
+    for(let u of gs.units)if(u.alive)all.push(u);
+    for(let e of gs.enemies)if(e.alive)all.push(e);
+    if(gs.king&&gs.king.alive) all.push(gs.king);
+    all.sort((a,b)=>a.y-b.y);
+    for(let e of all) e.draw();
+
+    for(let a of gs.armies){
+        let sx=a.x-gs.camera.x,sy=a.y-gs.camera.y;
+        let col=a.owner===OWNER.PLAYER?'#4FC3F7':a.owner===OWNER.ENEMY_A?'#F06262':a.owner===OWNER.VAMPIRES?'#CC0000':'#BA68C8';
+        ctx.fillStyle=col;
+        ctx.beginPath();ctx.arc(sx,sy,7,0,Math.PI*2);ctx.fill();
+        ctx.fillStyle='#111';ctx.beginPath();ctx.arc(sx,sy,3,0,Math.PI*2);ctx.fill();
+        ctx.fillStyle='#FFF';ctx.font='9px monospace';ctx.textAlign='center';
+        ctx.fillText(String(armyCount(a.comp)),sx,sy-10);
+        if(gs.selectedArmies.includes(a)){
+            ctx.strokeStyle='#0CF';ctx.lineWidth=2;
+            ctx.beginPath();ctx.arc(sx,sy,11,0,Math.PI*2);ctx.stroke();
+        }
+        ctx.textAlign='left';
+    }
+}
+
+function renderEffects(){
+    // Projéteis
+    for(let p of gs.projectiles){
+        let t=1-(p.timer/0.3);
+        let cx=lerp(p.x-gs.camera.x,p.tx-gs.camera.x,t);
+        let cy=lerp(p.y-gs.camera.y,p.ty-gs.camera.y,t);
+        ctx.fillStyle=p.color;
+        ctx.beginPath();ctx.arc(cx,cy,3,0,Math.PI*2);ctx.fill();
+        // Trail
+        ctx.fillStyle=p.color+'60';
+        ctx.beginPath();ctx.arc(cx-2,cy-1,2,0,Math.PI*2);ctx.fill();
+    }
+    // Explosões
+    for(let e of gs.explosions){
+        let sx=e.x-gs.camera.x,sy=e.y-gs.camera.y;
+        let alpha=e.life/0.3;
+        ctx.strokeStyle=`rgba(255,200,50,${alpha})`;ctx.lineWidth=2;
+        ctx.beginPath();ctx.arc(sx,sy,e.radius,0,Math.PI*2);ctx.stroke();
+        ctx.fillStyle=`rgba(255,150,30,${alpha*0.3})`;
+        ctx.beginPath();ctx.arc(sx,sy,e.radius*0.6,0,Math.PI*2);ctx.fill();
+    }
+    // Partículas de texto
+    for(let p of gs.particles){
+        let sx=p.x-gs.camera.x,sy=p.y-gs.camera.y;
+        ctx.globalAlpha=Math.max(0,p.life/p.maxLife);
+        ctx.fillStyle=p.color;ctx.font='bold 13px monospace';ctx.textAlign='center';
+        ctx.fillText(p.text,sx,sy);ctx.globalAlpha=1;ctx.textAlign='left';
+    }
+    // Caixa de seleção
+    if(selBox){
+        let x1=selBox.x1-gs.camera.x,y1=selBox.y1-gs.camera.y;
+        let x2=selBox.x2-gs.camera.x,y2=selBox.y2-gs.camera.y;
+        ctx.strokeStyle='#0F0';ctx.lineWidth=1;ctx.setLineDash([4,4]);
+        ctx.strokeRect(x1,y1,x2-x1,y2-y1);ctx.setLineDash([]);
+        ctx.fillStyle='rgba(0,255,0,0.08)';ctx.fillRect(x1,y1,x2-x1,y2-y1);
+    }
+}
+
+function renderBuildPreview(){
+    // Drag building preview
+    if(gs.isDragging&&gs.dragBuilding){
+        let tile=w2t(mouse.wx,mouse.wy);let def=gs.dragBuilding.def;
+        let sx=tile.x*TILE-gs.camera.x,sy=tile.y*TILE-gs.camera.y;
+        let ok=canBuild(tile.x,tile.y,def,gs.dragBuilding);
+        ctx.fillStyle=ok?'rgba(0,200,255,0.25)':'rgba(255,0,0,0.25)';
+        ctx.fillRect(sx,sy,def.w*TILE,def.h*TILE);
+        ctx.strokeStyle=ok?'#0CF':'#F00';ctx.lineWidth=2;ctx.strokeRect(sx,sy,def.w*TILE,def.h*TILE);
+        let spr=SC[gs.dragBuilding.type.toLowerCase()];
+        if(spr){ctx.globalAlpha=0.6;ctx.drawImage(spr,sx,sy);ctx.globalAlpha=1}
+        return;
+    }
+    if(gs.moveSelectionMode&&gs.movingBuildings.length>0){
+        let tile=w2t(mouse.wx,mouse.wy);
+        let ok=canPlaceMovingGroup(tile);
+        for(let mb of gs.movingBuildings){
+            let b=mb.building;
+            let tx=tile.x+mb.ox,ty=tile.y+mb.oy;
+            let sx=tx*TILE-gs.camera.x,sy=ty*TILE-gs.camera.y;
+            let spr=SC[b.type.toLowerCase()];
+            ctx.fillStyle=ok?'rgba(0,200,255,0.2)':'rgba(255,0,0,0.2)';
+            ctx.fillRect(sx,sy,b.def.w*TILE,b.def.h*TILE);
+            ctx.strokeStyle=ok?'#0CF':'#F00';ctx.lineWidth=2;
+            ctx.strokeRect(sx,sy,b.def.w*TILE,b.def.h*TILE);
+            if(spr){ctx.globalAlpha=0.6;ctx.drawImage(spr,sx,sy);ctx.globalAlpha=1}
+        }
+        return;
+    }
+    // Move mode preview
+    if(gs.moveMode&&gs.movingBuilding){
+        let tile=w2t(mouse.wx,mouse.wy);let def=gs.movingBuilding.def;
+        let sx=tile.x*TILE-gs.camera.x,sy=tile.y*TILE-gs.camera.y;
+        let mw=def.w*TILE,mh=def.h*TILE;
+        let ok=canBuild(tile.x,tile.y,def,gs.movingBuilding);
+        ctx.fillStyle=ok?'rgba(0,200,255,0.25)':'rgba(255,0,0,0.25)';
+        ctx.fillRect(sx,sy,mw,mh);
+        ctx.strokeStyle=ok?'#0CF':'#F00';ctx.lineWidth=2;ctx.strokeRect(sx,sy,mw,mh);
+        let spr=SC[gs.movingBuilding.type.toLowerCase()];
+        if(spr){ctx.globalAlpha=0.6;ctx.drawImage(spr,sx,sy);ctx.globalAlpha=1}
+        return;
+    }
+    if(!gs.buildMode)return;
+    let tile=w2t(mouse.wx,mouse.wy);let def=BUILD[gs.buildMode];
+    let sx=tile.x*TILE-gs.camera.x,sy=tile.y*TILE-gs.camera.y;
+    let w=def.w*TILE,h=def.h*TILE;
+    let ok=canBuild(tile.x,tile.y,def)&&canAfford(def.cost);
+    ctx.fillStyle=ok?'rgba(0,255,0,0.25)':'rgba(255,0,0,0.25)';
+    ctx.fillRect(sx,sy,w,h);
+    ctx.strokeStyle=ok?'#0F0':'#F00';ctx.lineWidth=2;ctx.strokeRect(sx,sy,w,h);
+    let spr=SC[gs.buildMode.toLowerCase()];
+    if(spr){ctx.globalAlpha=0.6;ctx.drawImage(spr,sx,sy);ctx.globalAlpha=1}
+    // Range para torre
+    if(gs.buildMode==='TOWER'){
+        ctx.strokeStyle='rgba(255,165,0,0.3)';ctx.lineWidth=1;
+        ctx.beginPath();ctx.arc(sx+TILE/2,sy+TILE/2,BUILD.TOWER.range*TILE,0,Math.PI*2);ctx.stroke();
+    }
+}
+
+function renderUI(){
+    uiButtons=[];
+
+    // ─── Barra de Recursos (Topo) ───
+    let barH=52;
+    ctx.fillStyle='rgba(10,10,30,0.92)';ctx.fillRect(0,0,W,barH);
+    ctx.strokeStyle='#333';ctx.lineWidth=1;ctx.strokeRect(0,0,W,barH);
+
+    let rates=getProductionRates();
+    ctx.font='bold 13px monospace';ctx.textAlign='left';
+    let rx=12;
+    // População
+    ctx.fillStyle=gs.population>=gs.popCap?'#F66':'#8CF';
+    ctx.fillText('👥 '+gs.population+'/'+gs.popCap,rx,18);
+    ctx.font='10px monospace';ctx.fillStyle='#888';
+    ctx.fillText('Livres: '+Math.max(0,getAvailablePop()),rx,34);
+    rx+=120;
+    // Comida
+    ctx.font='bold 13px monospace';
+    ctx.fillStyle=gs.hunger>=2?'#F44':gs.hunger>=1?'#FA4':'#2ecc71';
+    ctx.fillText('🌾 '+Math.floor(gs.resources.food),rx,18);
+    ctx.font='10px monospace';ctx.fillStyle=rates.food>=0?'#8C8':'#F88';
+    ctx.fillText((rates.food>=0?'+':'')+rates.food+'/min',rx,34);
+    rx+=110;
+    // Madeira
+    ctx.font='bold 13px monospace';ctx.fillStyle='#DEB887';
+    ctx.fillText('🪵 '+Math.floor(gs.resources.wood),rx,18);
+    ctx.font='10px monospace';ctx.fillStyle='#AA8';
+    ctx.fillText('+'+rates.wood+'/min',rx,34);
+    rx+=105;
+    // Pedra
+    ctx.font='bold 13px monospace';ctx.fillStyle='#B0BEC5';
+    ctx.fillText('🪨 '+Math.floor(gs.resources.stone),rx,18);
+    ctx.font='10px monospace';ctx.fillStyle='#9AA8AF';
+    ctx.fillText('+'+(rates.stone||0)+'/min',rx,34);
+    rx+=105;
+    // Ouro
+    ctx.font='bold 13px monospace';ctx.fillStyle='#FFD700';
+    ctx.fillText('💰 '+Math.floor(gs.resources.gold),rx,18);
+    ctx.font='10px monospace';ctx.fillStyle='#CC8';
+    ctx.fillText('+'+rates.gold+'/min',rx,34);
+    rx+=105;
+    // Tropas
+    ctx.font='bold 13px monospace';ctx.fillStyle='#87CEEB';
+    ctx.fillText('⚔️ '+gs.units.filter(u=>u.alive).length+' tropas',rx,18);
+    rx+=110;
+    // Territórios
+    let pTerr=getOwnerTerritories(OWNER.PLAYER).length;
+    let aTerr=getOwnerTerritories(OWNER.ENEMY_A).length;
+    let bTerr=getOwnerTerritories(OWNER.ENEMY_B).length;
+    let vTerr=getOwnerTerritories(OWNER.VAMPIRES).length;
+    ctx.fillStyle='#9FD9FF';
+    ctx.fillText('🗺️ '+pTerr+'P/'+aTerr+'B/'+bTerr+'M/'+vTerr+'V',rx,18);
+    ctx.font='10px monospace';ctx.fillStyle='#888';
+    let next=Math.max(0,Math.ceil(65-gs.waveTimer));
+    ctx.fillText('Onda '+gs.waveNumber+' ('+next+'s)',rx,34);
+    rx+=170;
+    // Dia/Noite
+    ctx.font='bold 13px monospace';
+    ctx.fillStyle=gs.isNight?'#8888CC':'#FFDD44';
+    ctx.fillText(gs.isNight?'🌙 Noite':'☀️ Dia',rx,18);
+    ctx.font='10px monospace';ctx.fillStyle='#888';
+    ctx.fillText('[N] Diplomacia',rx,34);
+    rx+=120;
+    ctx.font='bold 13px monospace';ctx.fillStyle='#DDD';
+    ctx.fillText('🔎 x'+gs.zoom.toFixed(1),rx,18);
+    ctx.font='10px monospace';ctx.fillStyle='#888';
+    ctx.fillText('[O] Livro',rx,34);
+    rx+=90;
+    // Alerta de fome
+    if(gs.hunger>=1){
+        ctx.font='bold 14px monospace';
+        ctx.fillStyle=gs.hunger>=3?'#F00':gs.hunger>=2?'#F60':'#FA0';
+        let blink=Math.sin(gs.gameTime*4)>0;
+        if(gs.hunger>=2||blink){
+            let hMsg=gs.hunger>=3?'💀 FOME EXTREMA!':gs.hunger>=2?'⚠️ FOME SEVERA!':'⚠️ Comida baixa!';
+            ctx.fillText(hMsg,rx,24);
+        }
+    }
+
+    // ─── Barra de Ações (Base) ───
+    let btmH=50;let btmY=H-btmH;
+    ctx.fillStyle='rgba(10,10,30,0.9)';ctx.fillRect(0,btmY,W,btmH);
+    ctx.strokeStyle='#333';ctx.strokeRect(0,btmY,W,btmH);
+
+    ctx.font='12px monospace';ctx.fillStyle='#888';
+    ctx.fillText(' [B] Construir  [R] Recrutar  [U] Forjar  [J] Muros  [N] Diplomacia  [O] Livro  Scroll Zoom',15,btmY+20);
+
+    if(gs.isDragging&&gs.dragBuilding){
+        ctx.fillStyle='#0CF';ctx.font='13px monospace';
+        ctx.fillText('🔄 Arrastando '+gs.dragBuilding.def.name+'... Solte para posicionar.',15,btmY+40);
+    } else if(gs.moveSelectionMode&&gs.movingBuildings.length>0){
+        ctx.fillStyle='#0CF';ctx.font='13px monospace';
+        ctx.fillText('🧱 Reposicionando '+gs.movingBuildings.length+' muro(s) em grupo. Clique para confirmar.',15,btmY+40);
+    } else if(gs.moveMode&&gs.movingBuilding){
+        ctx.fillStyle='#0CF';ctx.font='13px monospace';
+        ctx.fillText('🔄 Movendo: '+gs.movingBuilding.def.name+'   (Clique para posicionar, ESC cancela)',15,btmY+40);
+    } else if(gs.buildMode){
+        let def=BUILD[gs.buildMode];
+        ctx.fillStyle='#FFD700';ctx.font='13px monospace';
+        ctx.fillText('🏗️ Construindo: '+def.name+'   Custo: 💰'+def.cost.gold+' 🌾'+def.cost.food+' 🪵'+def.cost.wood+' 🪨'+(def.cost.stone||0)+'   (Clique para posicionar, ESC cancela)',15,btmY+40);
+    } else if(gs.showBuildingMenu&&gs.selectedBuilding){
+        let sb=gs.selectedBuilding;
+        ctx.fillStyle='#FFD700';ctx.font='13px monospace';
+        ctx.fillText('🏰 '+sb.def.name+' | HP: '+sb.hp+'/'+sb.maxHp+(sb.type!=='CASTLE'?'   [M] Mover   [V] Vender':'')+'   [ESC] Fechar',15,btmY+40);
+    } else if(gs.selectedArmies.length>0){
+        let total=gs.selectedArmies.reduce((acc,a)=>acc+armyCount(a.comp),0);
+        ctx.fillStyle='#65D6FF';ctx.font='13px monospace';
+        ctx.fillText('🚩 '+gs.selectedArmies.length+' exército(s) selecionado(s) | tropas: '+total+' | Clique direito para comandar conquista/defesa',15,btmY+40);
+    } else if(gs.selectedUnits.length>0){
+        let info=gs.selectedUnits.length+' unidade(s) | ';
+        let types={};gs.selectedUnits.forEach(u=>{types[u.name]=(types[u.name]||0)+1});
+        for(let t in types)info+=types[t]+'x '+t+' ';
+        ctx.fillStyle='#0F0';ctx.font='13px monospace';ctx.fillText('✦ '+info+' | Clique direito: mover/atacar | [G] mobiliza para exército',15,btmY+40);
+    } else if(gs.selectedBuildings.length>1){
+        ctx.fillStyle='#FFD700';ctx.font='13px monospace';
+        ctx.fillText('🧱 '+gs.selectedBuildings.length+' construções selecionadas | [M] mover grupo de muros',15,btmY+40);
+    } else {
+        ctx.fillStyle='#9CC';ctx.font='12px monospace';
+        ctx.fillText('⚙️ Forja:'+gs.upgrades.forge+'/5  |  Alvenaria:'+gs.upgrades.masonry+'/5',15,btmY+40);
+    }
+
+    // ─── Menu Construção ───
+    if(gs.showBuildMenu){
+        let mw=260,mh=BUILD_LIST.length*48+45,mx=15,my=btmY-mh-10;
+        ctx.fillStyle='rgba(15,15,35,0.95)';ctx.fillRect(mx,my,mw,mh);
+        ctx.strokeStyle='#FFD700';ctx.lineWidth=2;ctx.strokeRect(mx,my,mw,mh);
+        ctx.fillStyle='#FFD700';ctx.font='bold 15px monospace';ctx.fillText('🏗️ CONSTRUÇÕES',mx+10,my+24);
+
+        for(let i=0;i<BUILD_LIST.length;i++){
+            let type=BUILD_LIST[i],def=BUILD[type];
+            let by=my+35+i*48,ok=canAfford(def.cost);
+            ctx.fillStyle=type===gs.buildMode?'rgba(255,215,0,0.2)':'rgba(40,40,70,0.8)';
+            ctx.fillRect(mx+5,by,mw-10,42);
+            ctx.strokeStyle=ok?'#555':'#422';ctx.lineWidth=1;ctx.strokeRect(mx+5,by,mw-10,42);
+            ctx.fillStyle=ok?'#FFF':'#666';ctx.font='13px monospace';
+            ctx.fillText('['+(i+1)+'] '+def.icon+' '+def.name,mx+12,by+18);
+            ctx.fillStyle=ok?'#AAA':'#555';ctx.font='10px monospace';
+            let info='💰'+def.cost.gold+' 🌾'+def.cost.food+' 🪵'+def.cost.wood+' 🪨'+(def.cost.stone||0);
+            if(def.popCap>0)info+=' | 👥+'+def.popCap;
+            if(def.produces)info+=' | '+JSON.stringify(def.produces).replace(/[{}"]/g,'');
+            if(def.workers>0)info+=' | ⚒️'+def.workers+' trab.';
+            ctx.fillText(info,mx+12,by+34);
+            uiButtons.push({x:mx+5,y:by,w:mw-10,h:42,fn:()=>{gs.buildMode=type}});
+        }
+    }
+
+    // ─── Menu Recrutamento ───
+    if(gs.showRecruitMenu){
+        let mw=280,mh=UNIT_LIST.length*48+55,mx=290,my=btmY-mh-10;
+        ctx.fillStyle='rgba(15,15,35,0.95)';ctx.fillRect(mx,my,mw,mh);
+        ctx.strokeStyle='#C44';ctx.lineWidth=2;ctx.strokeRect(mx,my,mw,mh);
+        ctx.fillStyle='#F66';ctx.font='bold 15px monospace';ctx.fillText('⚔️ RECRUTAR TROPAS',mx+10,my+24);
+
+        let hb=hasBarracks();
+        for(let i=0;i<UNIT_LIST.length;i++){
+            let type=UNIT_LIST[i],def=UDEF[type];
+            let by=my+35+i*48,ok=canAfford(def.cost)&&hb&&getAvailablePop()>=(def.cost.pop||0);
+            ctx.fillStyle='rgba(40,40,70,0.8)';ctx.fillRect(mx+5,by,mw-10,42);
+            ctx.strokeStyle=ok?'#555':'#422';ctx.lineWidth=1;ctx.strokeRect(mx+5,by,mw-10,42);
+            ctx.fillStyle=ok?'#FFF':'#666';ctx.font='13px monospace';
+            ctx.fillText('['+(i+1)+'] '+def.icon+' '+def.name,mx+12,by+18);
+            ctx.fillStyle=ok?'#AAA':'#555';ctx.font='10px monospace';
+            ctx.fillText('💰'+def.cost.gold+' 🌾'+def.cost.food+' 👥'+(def.cost.pop||0)+' | HP:'+def.hp+' ATK:'+def.atk+' DEF:'+def.def,mx+12,by+34);
+            uiButtons.push({x:mx+5,y:by,w:mw-10,h:42,fn:()=>{recruitUnit(type)}});
+        }
+        if(!hb){ctx.fillStyle='#F44';ctx.font='12px monospace';ctx.fillText('⚠️ Construa um Quartel primeiro!',mx+10,my+mh-8)}
+    }
+
+    // ─── Menu Construção Selecionada ───
+    if(gs.showBuildingMenu&&gs.selectedBuilding&&!gs.showRecruitMenu){
+        let sb=gs.selectedBuilding;
+        let mw=240,mh=sb.type==='CASTLE'?80:160,mx=W/2-mw/2,my=btmY-mh-15;
+        ctx.fillStyle='rgba(15,15,35,0.95)';ctx.fillRect(mx,my,mw,mh);
+        ctx.strokeStyle='#FFD700';ctx.lineWidth=2;ctx.strokeRect(mx,my,mw,mh);
+        ctx.fillStyle='#FFD700';ctx.font='bold 14px monospace';ctx.fillText(sb.def.icon+' '+sb.def.name,mx+10,my+22);
+        ctx.fillStyle='#AAA';ctx.font='12px monospace';
+        ctx.fillText('HP: '+sb.hp+'/'+sb.maxHp,mx+10,my+40);
+        if(sb.def.produces){let pr='';for(let r in sb.def.produces)pr+=r+':+'+sb.def.produces[r]+' ';ctx.fillText('Produz: '+pr,mx+10,my+56)}
+        if(sb.type!=='CASTLE'){
+            // Mover button
+            let btnY1=my+mh-70;
+            ctx.fillStyle='rgba(0,100,200,0.6)';ctx.fillRect(mx+10,btnY1,mw-20,28);
+            ctx.strokeStyle='#0CF';ctx.lineWidth=1;ctx.strokeRect(mx+10,btnY1,mw-20,28);
+            ctx.fillStyle='#FFF';ctx.font='13px monospace';ctx.fillText('🔄 [M] Mover',mx+55,btnY1+18);
+            uiButtons.push({x:mx+10,y:btnY1,w:mw-20,h:28,fn:()=>{startMoveBuilding(sb)}});
+            // Vender button
+            let btnY2=my+mh-36;
+            let refG=Math.floor((sb.def.cost.gold||0)*0.5),refW=Math.floor((sb.def.cost.wood||0)*0.5);
+            ctx.fillStyle='rgba(180,50,50,0.6)';ctx.fillRect(mx+10,btnY2,mw-20,28);
+            ctx.strokeStyle='#F66';ctx.lineWidth=1;ctx.strokeRect(mx+10,btnY2,mw-20,28);
+            ctx.fillStyle='#FFF';ctx.font='13px monospace';ctx.fillText('💰 [V] Vender ('+refG+'g '+refW+'w)',mx+30,btnY2+18);
+            uiButtons.push({x:mx+10,y:btnY2,w:mw-20,h:28,fn:()=>{sellBuilding(sb)}});
+        }
+    }
+
+    // ─── Mensagens ───
+    for(let i=0;i<gs.messages.length;i++){
+        let m=gs.messages[i],a=Math.min(1,m.timer);
+        ctx.globalAlpha=a;
+        let my2=55+i*28;
+        ctx.fillStyle='rgba(0,0,0,0.75)';
+        ctx.font='13px monospace';let tw=ctx.measureText(m.text).width;
+        ctx.fillRect(W/2-tw/2-12,my2-14,tw+24,22);
+        ctx.fillStyle='#FFF';ctx.textAlign='center';ctx.fillText(m.text,W/2,my2);
+        ctx.textAlign='left';ctx.globalAlpha=1;
+    }
+
+    // ─── Minimapa ───
+    let mmS=140,mmX=W-mmS-12,mmY=50;
+    ctx.fillStyle='rgba(0,0,0,0.85)';ctx.fillRect(mmX-3,mmY-3,mmS+6,mmS+6);
+    ctx.strokeStyle='#FFD700';ctx.lineWidth=1;ctx.strokeRect(mmX-3,mmY-3,mmS+6,mmS+6);
+
+    let mtw=mmS/MAP_W,mth=mmS/MAP_H;
+    // Terreno + territorios
+    for(let y=0;y<MAP_H;y+=3){for(let x=0;x<MAP_W;x+=3){
+        ctx.fillStyle=TERRAIN_COLORS[gs.map[y][x]][0];
+        ctx.fillRect(mmX+x*mtw,mmY+y*mth,mtw*3+1,mth*3+1);
+    }}
+    for(let ty=0;ty<TERR_H;ty++)for(let tx=0;tx<TERR_W;tx++){
+        let tt=gs.territories[terrIndex(tx,ty)];
+        ctx.fillStyle=OWNER_COLOR[tt.owner]||OWNER_COLOR[OWNER.NEUTRAL];
+        ctx.fillRect(mmX+tx*TERR_TILE*mtw,mmY+ty*TERR_TILE*mth,TERR_TILE*mtw,TERR_TILE*mth);
+    }
+    // Construções
+    for(let b of gs.buildings){
+        if(b.hp<=0)continue;
+        ctx.fillStyle=b.type==='CASTLE'?'#FFD700':'#CCC';
+        ctx.fillRect(mmX+b.x*mtw,mmY+b.y*mth,Math.max(2,b.def.w*mtw),Math.max(2,b.def.h*mth));
+    }
+    // Unidades
+    for(let u of gs.units){if(!u.alive)continue;ctx.fillStyle='#0F0';ctx.fillRect(mmX+(u.x/TILE)*mtw,mmY+(u.y/TILE)*mth,2,2)}
+    for(let e of gs.enemies){if(!e.alive)continue;ctx.fillStyle='#F00';ctx.fillRect(mmX+(e.x/TILE)*mtw,mmY+(e.y/TILE)*mth,2,2)}
+    for(let a of gs.armies){
+        ctx.fillStyle=a.owner===OWNER.PLAYER?'#4FC3F7':a.owner===OWNER.ENEMY_A?'#F06262':a.owner===OWNER.VAMPIRES?'#CC0000':'#BA68C8';
+        ctx.fillRect(mmX+(a.x/TILE)*mtw-1,mmY+(a.y/TILE)*mth-1,3,3);
+    }
+    // Rei
+    if(gs.king){ctx.fillStyle='#FFD700';ctx.fillRect(mmX+(gs.king.x/TILE)*mtw-2,mmY+(gs.king.y/TILE)*mth-2,4,4)}
+    // Viewport
+    ctx.strokeStyle='#FFF';ctx.lineWidth=1;
+    let sc=mmS/(MAP_W*TILE);
+    ctx.strokeRect(mmX+gs.camera.x*sc,mmY+gs.camera.y*sc,(W/gs.zoom)*sc,(H/gs.zoom)*sc);
+
+    if(gs.showGuide){
+        let matches=getGuideMatches(gs.guideQuery);
+        let bw=Math.min(760,W-80),bh=Math.min(540,H-120),bx=(W-bw)/2,by=(H-bh)/2;
+        ctx.fillStyle='rgba(8,8,18,0.94)';ctx.fillRect(bx,by,bw,bh);
+        ctx.strokeStyle='#d8b46a';ctx.lineWidth=3;ctx.strokeRect(bx,by,bw,bh);
+        ctx.fillStyle='#f3d48a';ctx.font='bold 24px monospace';ctx.textAlign='left';
+        ctx.fillText('Livro do Reino',bx+24,by+36);
+        ctx.font='12px monospace';ctx.fillStyle='#aaa';
+        ctx.fillText('Digite para pesquisar. Backspace apaga. O ou ESC fecha.',bx+24,by+58);
+        ctx.fillStyle='rgba(255,255,255,0.08)';ctx.fillRect(bx+24,by+74,bw-48,34);
+        ctx.strokeStyle='#666';ctx.lineWidth=1;ctx.strokeRect(bx+24,by+74,bw-48,34);
+        ctx.fillStyle='#fff';ctx.font='14px monospace';
+        ctx.fillText('Busca: '+(gs.guideQuery||'...'),bx+36,by+96);
+
+        let entry=matches[0]||null;
+        ctx.fillStyle='#d9c08a';ctx.font='bold 16px monospace';
+        ctx.fillText('Resultados: '+matches.length,bx+24,by+136);
+        for(let i=0;i<Math.min(6,matches.length);i++){
+            ctx.fillStyle=i===0?'#fff2b8':'#cfcfcf';
+            ctx.font=i===0?'bold 15px monospace':'14px monospace';
+            ctx.fillText((i===0?'▶ ':'• ')+matches[i].title,bx+30,by+168+i*24);
+        }
+        if(entry){
+            ctx.fillStyle='rgba(255,255,255,0.05)';ctx.fillRect(bx+24,by+238,bw-48,bh-262);
+            ctx.strokeStyle='#444';ctx.strokeRect(bx+24,by+238,bw-48,bh-262);
+            ctx.fillStyle='#f3d48a';ctx.font='bold 18px monospace';
+            ctx.fillText(entry.title,bx+40,by+268);
+            ctx.fillStyle='#ddd';ctx.font='14px monospace';
+            let words=entry.body.split(' '),line='',yy=by+300,maxW=bw-90;
+            for(let word of words){
+                let test=line?line+' '+word:word;
+                if(ctx.measureText(test).width>maxW){ctx.fillText(line,bx+40,yy);line=word;yy+=24;}
+                else line=test;
+            }
+            if(line) ctx.fillText(line,bx+40,yy);
+        }else{
+            ctx.fillStyle='#f88';ctx.font='14px monospace';
+            ctx.fillText('Nenhum topico encontrado para essa busca.',bx+30,by+170);
+        }
+        ctx.textAlign='left';
+    }
+
+    // ─── Painel de Diplomacia ───
+    if(gs.showDiplomacy){
+        let dw=Math.min(620,W-80),dh=Math.min(480,H-120),dx2=(W-dw)/2,dy2=(H-dh)/2;
+        ctx.fillStyle='rgba(8,8,18,0.94)';ctx.fillRect(dx2,dy2,dw,dh);
+        ctx.strokeStyle='#CC4444';ctx.lineWidth=3;ctx.strokeRect(dx2,dy2,dw,dh);
+        ctx.fillStyle='#FFD700';ctx.font='bold 22px monospace';ctx.textAlign='left';
+        ctx.fillText('⚔️ Diplomacia dos Reinos',dx2+20,dy2+32);
+        ctx.font='11px monospace';ctx.fillStyle='#aaa';
+        ctx.fillText('[N] ou [ESC] para fechar',dx2+20,dy2+50);
+
+        let kingdoms=[
+            {owner:OWNER.ENEMY_A,name:'Reino dos Bárbaros',icon:'🪓',color:'#F06262'},
+            {owner:OWNER.ENEMY_B,name:'Reino dos Magos',icon:'🔮',color:'#BA68C8'},
+            {owner:OWNER.VAMPIRES,name:'Reino dos Vampiros',icon:'🧛',color:'#CC0000'}
+        ];
+        let ky=dy2+75;
+        for(let ki=0;ki<kingdoms.length;ki++){
+            let kd=kingdoms[ki];
+            let state=getDiplo(OWNER.PLAYER,kd.owner);
+            let terrs=getOwnerTerritories(kd.owner).length;
+            let stateStr=state===DIPLO.WAR?'⚔️ GUERRA':state===DIPLO.ALLIANCE?'🤝 ALIANÇA':state===DIPLO.PEACE?'🕊️ PAZ':'😐 NEUTRO';
+            let stateColor=state===DIPLO.WAR?'#F44':state===DIPLO.ALLIANCE?'#4F4':state===DIPLO.PEACE?'#8CF':'#AAA';
+            let rh=88;
+
+            // Background do reino
+            ctx.fillStyle='rgba(30,30,50,0.8)';ctx.fillRect(dx2+15,ky,dw-30,rh);
+            ctx.strokeStyle=kd.color;ctx.lineWidth=2;ctx.strokeRect(dx2+15,ky,dw-30,rh);
+
+            // Info do reino
+            ctx.fillStyle=kd.color;ctx.font='bold 16px monospace';
+            ctx.fillText(kd.icon+' '+kd.name,dx2+28,ky+22);
+            ctx.fillStyle='#AAA';ctx.font='12px monospace';
+            ctx.fillText('Territórios: '+terrs+'  |  Estado: ',dx2+28,ky+42);
+            let tw=ctx.measureText('Territórios: '+terrs+'  |  Estado: ').width;
+            ctx.fillStyle=stateColor;ctx.fillText(stateStr,dx2+28+tw,ky+42);
+
+            // Botões de ação
+            let btnW=110,btnH=26,btnY=ky+52;
+            // Botão 1: Declarar Guerra (se não em guerra)
+            if(state!==DIPLO.WAR){
+                let bx1=dx2+28;
+                ctx.fillStyle='rgba(200,50,50,0.7)';ctx.fillRect(bx1,btnY,btnW,btnH);
+                ctx.strokeStyle='#F44';ctx.lineWidth=1;ctx.strokeRect(bx1,btnY,btnW,btnH);
+                ctx.fillStyle='#FFF';ctx.font='11px monospace';ctx.fillText('⚔️ Guerra',bx1+10,btnY+17);
+                uiButtons.push({x:bx1,y:btnY,w:btnW,h:btnH,fn:()=>{declareWar(OWNER.PLAYER,kd.owner)}});
+            }
+            // Botão 2: Fazer Aliança (se em guerra ou neutro)
+            if(state===DIPLO.WAR||state===DIPLO.NEUTRAL){
+                let bx2=dx2+28+(state!==DIPLO.WAR?0:1)*(btnW+10);
+                if(state!==DIPLO.WAR) bx2=dx2+28+btnW+10;
+                ctx.fillStyle='rgba(50,150,50,0.7)';ctx.fillRect(bx2,btnY,btnW,btnH);
+                ctx.strokeStyle='#4F4';ctx.lineWidth=1;ctx.strokeRect(bx2,btnY,btnW,btnH);
+                ctx.fillStyle='#FFF';ctx.font='11px monospace';ctx.fillText('🤝 Aliança',bx2+8,btnY+17);
+                uiButtons.push({x:bx2,y:btnY,w:btnW,h:btnH,fn:()=>{makeAlliance(OWNER.PLAYER,kd.owner)}});
+            }
+            // Botão 3: Fazer Paz (se em guerra)
+            if(state===DIPLO.WAR){
+                let bx3=dx2+28+btnW+10;
+                ctx.fillStyle='rgba(80,130,200,0.7)';ctx.fillRect(bx3,btnY,btnW,btnH);
+                ctx.strokeStyle='#8CF';ctx.lineWidth=1;ctx.strokeRect(bx3,btnY,btnW,btnH);
+                ctx.fillStyle='#FFF';ctx.font='11px monospace';ctx.fillText('🕊️ Paz',bx3+20,btnY+17);
+                uiButtons.push({x:bx3,y:btnY,w:btnW,h:btnH,fn:()=>{makePeace(OWNER.PLAYER,kd.owner)}});
+            }
+
+            ky+=rh+10;
+        }
+
+        // Relações entre reinos IA
+        ctx.fillStyle='#d8b46a';ctx.font='bold 14px monospace';
+        ctx.fillText('Relações entre reinos IA:',dx2+20,ky+18);
+        ky+=30;
+        let aiPairs=[
+            [OWNER.ENEMY_A,OWNER.ENEMY_B,'Bárbaros','Magos'],
+            [OWNER.ENEMY_A,OWNER.VAMPIRES,'Bárbaros','Vampiros'],
+            [OWNER.ENEMY_B,OWNER.VAMPIRES,'Magos','Vampiros']
+        ];
+        for(let pair of aiPairs){
+            let st=getDiplo(pair[0],pair[1]);
+            let stStr=st===DIPLO.WAR?'⚔️ GUERRA':st===DIPLO.ALLIANCE?'🤝 ALIANÇA':st===DIPLO.PEACE?'🕊️ PAZ':'😐 NEUTRO';
+            let stCol=st===DIPLO.WAR?'#F44':st===DIPLO.ALLIANCE?'#4F4':st===DIPLO.PEACE?'#8CF':'#AAA';
+            ctx.fillStyle='#CCC';ctx.font='12px monospace';
+            ctx.fillText(pair[2]+' ↔ '+pair[3]+': ',dx2+28,ky);
+            let tw2=ctx.measureText(pair[2]+' ↔ '+pair[3]+': ').width;
+            ctx.fillStyle=stCol;ctx.fillText(stStr,dx2+28+tw2,ky);
+            ky+=22;
+        }
+        ctx.textAlign='left';
+    }
+
+    // ─── Pause ───
+    if(gs.paused){
+        ctx.fillStyle='rgba(0,0,0,0.6)';ctx.fillRect(0,0,W,H);
+        ctx.fillStyle='#FFD700';ctx.font='bold 48px monospace';ctx.textAlign='center';
+        ctx.fillText('⏸ PAUSADO',W/2,H/2);
+        ctx.font='18px monospace';ctx.fillStyle='#AAA';
+        ctx.fillText('Pressione [P] para continuar',W/2,H/2+40);
+        ctx.textAlign='left';
+    }
+
+    // ─── Game Over ───
+    if(gs.phase==='gameover'){
+        ctx.fillStyle='rgba(0,0,0,0.75)';ctx.fillRect(0,0,W,H);
+        ctx.fillStyle='#FF0000';ctx.font='bold 52px monospace';ctx.textAlign='center';
+        ctx.fillText('💀 DERROTA!',W/2,H/2-30);
+        ctx.font='20px monospace';ctx.fillStyle='#CCC';
+        ctx.fillText('Seu castelo foi destruído!',W/2,H/2+10);
+        ctx.fillText('Ondas sobrevividas: '+gs.waveNumber,W/2,H/2+40);
+        ctx.fillStyle='#FFD700';
+        ctx.fillText('Pressione [F5] para recomeçar',W/2,H/2+80);
+        ctx.textAlign='left';
+    }
+}
+
+function renderMenu(){
+    ctx.fillStyle='#0a0a1a';ctx.fillRect(0,0,W,H);
+
+    // Estrelas animadas
+    for(let i=0;i<80;i++){
+        let sx=(hash(i,0)%W),sy=(hash(0,i)%H);
+        let br=0.3+Math.sin(gs.gameTime*2+i)*0.7;
+        ctx.fillStyle=`rgba(255,255,200,${Math.max(0,br)*0.5})`;
+        ctx.fillRect(sx,sy,2,2);
+    }
+
+    // Castelo grande no fundo
+    ctx.globalAlpha=0.15;
+    let scaleX=6,scaleY=6;
+    let csx=W/2-SC.castle.width*scaleX/2,csy=H/2-SC.castle.height*scaleY/2+40;
+    ctx.drawImage(SC.castle,csx,csy,SC.castle.width*scaleX,SC.castle.height*scaleY);
+    ctx.globalAlpha=1;
+
+    // Título
+    let glow=0.7+Math.sin(gs.gameTime*2)*0.3;
+    ctx.fillStyle=`rgba(255,215,0,${glow})`;ctx.font='bold 56px monospace';ctx.textAlign='center';
+    ctx.fillText('⚔️ REINO MEDIEVAL ⚔️',W/2,H/2-100);
+
+    ctx.fillStyle='#CCC';ctx.font='20px monospace';
+    ctx.fillText('Pixel Art Strategy Game',W/2,H/2-60);
+
+    ctx.fillStyle='#FFF';ctx.font='16px monospace';
+    let blink=Math.sin(gs.gameTime*3)>0;
+    if(blink) ctx.fillText('▶ Pressione qualquer tecla para começar ◀',W/2,H/2+10);
+
+    // Instruções
+    ctx.fillStyle='#888';ctx.font='13px monospace';
+    let info=[
+        '🎮 WASD - Mover o Rei',
+        '🏗️ [B] - Menu de Construção',
+        '⚔️ [R] - Menu de Recrutamento',
+        '⛏️ Pedreira minera pedra perto das rochas',
+        '⚒️ [U] melhora espadas | [J] reforca muralhas',
+        '🚩 [G] - Converter tropas em exército',
+        '🔎 Scroll - Zoom / Botão do meio arrasta câmera',
+        '📖 [O] - Livro de ajuda com pesquisa',
+        '🖱️ Arrastar construção para mover',
+        '🖱️ Click direito - Mover/Atacar tropas',
+        '👥 Construa casas para aumentar população',
+        '🌾 Produza comida para evitar a fome',
+        '💾 [F5] Salvar  |  📂 [F9] Carregar',
+        '⏸ [P] - Pausar'
+    ];
+    for(let i=0;i<info.length;i++){
+        ctx.fillText(info[i],W/2,H/2+60+i*22);
+    }
+
+    ctx.fillStyle='#555';ctx.font='11px monospace';
+    ctx.fillText('Construa seu reino • Recrute um exército • Defenda contra invasores',W/2,H-40);
+    ctx.textAlign='left';
+}
+
+// ═══════════════════════════════════════════════════════════
+// CÂMERA
+// ═══════════════════════════════════════════════════════════
+function updateCamera(){
+    if(!gs.king)return;
+    let view=getViewSize();
+    let tx=gs.king.x-view.w/2+gs.cameraOffset.x,ty=gs.king.y-view.h/2+gs.cameraOffset.y;
+    gs.camera.x=lerp(gs.camera.x,tx,0.08);
+    gs.camera.y=lerp(gs.camera.y,ty,0.08);
+    clampCamera();
+}
+
+// ═══════════════════════════════════════════════════════════
+// GAME LOOP
+// ═══════════════════════════════════════════════════════════
+let lastTime=0;
+
+function gameLoop(timestamp){
+    let dt=Math.min((timestamp-lastTime)/1000,0.05);
+    lastTime=timestamp;
+
+    if(gs.phase==='menu'){
+        gs.gameTime+=dt;
+        renderMenu();
+        requestAnimationFrame(gameLoop);return;
+    }
+
+    if(!gs.paused&&gs.phase==='playing'){
+        gs.gameTime+=dt;
+
+        // Atualizar rei
+        if(gs.king) gs.king.update(dt);
+        updateCamera();
+
+        // Atualizar construções
+        for(let b of gs.buildings) b.update(dt);
+
+        // Atualizar unidades do jogador
+        for(let i=gs.units.length-1;i>=0;i--){
+            gs.units[i].update(dt);
+            if(!gs.units[i].alive){
+                gs.units[i].selected=false;
+                gs.selectedUnits=gs.selectedUnits.filter(u=>u!==gs.units[i]);
+                gs.units.splice(i,1);
+            }
+        }
+
+        // Atualizar inimigos
+        for(let i=gs.enemies.length-1;i>=0;i--){
+            gs.enemies[i].update(dt);
+            if(!gs.enemies[i].alive){
+                let e=gs.enemies[i];
+                gs.resources.gold+=e.loot.gold;
+                gs.resources.food+=e.loot.food;
+                addParticle(e.x,e.y-5,'+'+e.loot.gold+'💰','#FFD700');
+                gs.enemies.splice(i,1);
+            }
+        }
+
+        // Recursos
+        updateResources(dt);
+        updatePopulation(dt);
+        updateHunger(dt);
+        updateTerritoryEconomy(dt);
+        updateKingdomAI(dt);
+        updateArmies(dt);
+        updateDayNight(dt);
+        updateRandomEvents(dt);
+
+        // Efeitos
+        updateEffects(dt);
+
+        // Ondas de inimigos
+        gs.waveTimer+=dt;
+        if(gs.waveTimer>=65){gs.waveTimer=0;spawnWave()}
+
+        // Spawn aleatório de bandidos
+        if(Math.random()<0.0003*dt*60&&gs.waveNumber>=1){
+            let fx,fy;
+            do{
+                fx=randInt(5,MAP_W-5);fy=randInt(5,MAP_H-5);
+            }while(gs.map[fy][fx]===T.WATER||gs.map[fy][fx]===T.MOUNTAIN||
+                   dist(fx*TILE,fy*TILE,gs.king.x,gs.king.y)<TILE*20);
+            gs.enemies.push(new EnemyUnit(fx*TILE,fy*TILE,'bandit'));
+        }
+
+        // Game over
+        let castle=gs.buildings.find(b=>b.type==='CASTLE');
+        if(!castle||castle.hp<=0) gs.phase='gameover';
+
+        // Limpar construções destruídas
+        gs.buildings=gs.buildings.filter(b=>b.hp>0);
+
+        // Rei morreu - respawn no castelo
+        if(gs.king&&!gs.king.alive){
+            let c=gs.buildings.find(b=>b.type==='CASTLE');
+            if(c){
+                gs.king.hp=gs.king.maxHp;gs.king.alive=true;
+                gs.king.x=(c.x+1.5)*TILE;gs.king.y=(c.y+3.5)*TILE;
+                addMessage('👑 O Rei retornou ao castelo!');
+            }
+        }
+    }
+
+    // ─── RENDER ───
+    ctx.save();
+    ctx.fillStyle='#0a0a1a';ctx.fillRect(-5,-5,W+10,H+10);
+    // Screen shake
+    if(gs.screenShake>0){
+        let sh=gs.screenShake*4;
+        ctx.translate(rand(-sh,sh),rand(-sh,sh));
+    }
+    ctx.scale(gs.zoom,gs.zoom);
+    renderTerrain();
+    renderBuildings();
+    renderBuildPreview();
+    renderEntities();
+    renderEffects();
+
+    // Night overlay
+    let nightA=getNightAlpha();
+    if(nightA>0){
+        ctx.fillStyle='rgba(10,5,40,'+nightA.toFixed(3)+')';
+        ctx.fillRect(-10/gs.zoom,-10/gs.zoom,(W+20)/gs.zoom,(H+20)/gs.zoom);
+    }
+
+    // Fog in vampire territories
+    let view=getViewSize();
+    let fCols=Math.ceil(view.w/TILE)+2,fRows=Math.ceil(view.h/TILE)+2;
+    let fstx=Math.floor(gs.camera.x/TILE),fsty=Math.floor(gs.camera.y/TILE);
+    let fox=-(gs.camera.x%TILE),foy=-(gs.camera.y%TILE);
+    for(let row=-1;row<fRows;row+=2){
+        for(let col=-1;col<fCols;col+=2){
+            let tx=fstx+col,ty=fsty+row;
+            if(tx<0||tx>=MAP_W||ty<0||ty>=MAP_H)continue;
+            let terr=getTerritoryByTile(tx,ty);
+            if(terr&&terr.owner===OWNER.VAMPIRES){
+                let dx=col*TILE+fox,dy=row*TILE+foy;
+                let fogA=0.08+Math.sin(gs.gameTime*0.8+tx*0.3+ty*0.5)*0.04;
+                ctx.fillStyle='rgba(60,0,60,'+fogA.toFixed(3)+')';
+                ctx.fillRect(dx,dy,TILE*2,TILE*2);
+            }
+        }
+    }
+
+    ctx.restore();
+    renderUI();
+
+    requestAnimationFrame(gameLoop);
+}
+
+// ═══════════════════════════════════════════════════════════
+// INICIALIZAÇÃO
+// ═══════════════════════════════════════════════════════════
+function init(){
+    initIcons();
+    initSprites();
+    gs.map=generateMap();
+    initResourceNodes();
+    initTerritories();
+    initKingdoms();
+    initDiplomacy();
+    initRuins();
+    initVampireStructures();
+
+    let cx=Math.floor(MAP_W/2)-1,cy=Math.floor(MAP_H/2)-1;
+
+    // Castelo inicial
+    gs.buildings.push(new Building(cx,cy,'CASTLE'));
+
+    // Construções iniciais
+    gs.buildings.push(new Building(cx-2,cy,'HOUSE'));
+    gs.buildings.push(new Building(cx+3,cy,'HOUSE'));
+    gs.buildings.push(new Building(cx-2,cy+3,'FARM'));
+    gs.buildings.push(new Building(cx+3,cy+2,'LUMBER'));
+
+    // Rei
+    gs.king=new King((cx+1.5)*TILE,(cy+3.5)*TILE);
+
+    // Câmera inicial
+    gs.camera.x=gs.king.x-W/(2*gs.zoom);
+    gs.camera.y=gs.king.y-H/(2*gs.zoom);
+    clampCamera();
+    updateMouseWorld();
+
+    requestAnimationFrame(gameLoop);
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "sprites": ["rei_idle.png"],
+  "tilesets": ["base_tileset.png"],
+  "ui": ["barra_recursos.png"],
+  "buildings": ["casa.png", "quartel.png"],
+  "units": ["soldado.png", "arqueiro.png"],
+  "effects": ["golpe.png"],
+  "audio": ["tema_principal.ogg"]
+}
