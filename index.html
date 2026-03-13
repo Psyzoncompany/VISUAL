@@ -1516,7 +1516,7 @@ const VAMP_BUILD = {
     VAMP_CASTLE:{id:'VAMP_CASTLE',name:'Castelo Vampiro',w:3,h:3,cost:{gold:0},hp:600,icon:'vamp_castle',popCap:0,workers:0},
     VAMP_LAIR:{id:'VAMP_LAIR',name:'Covil de Vampiros',w:2,h:2,cost:{gold:0},hp:300,icon:'bat',popCap:0,workers:0},
     DARK_TOWER:{id:'DARK_TOWER',name:'Torre Sombria',w:1,h:1,cost:{gold:0},hp:350,attack:18,range:7,icon:'tower',popCap:0,workers:0},
-    CEMETERY:{id:'CEMETERY',name:'Cemitério',w:2,h:2,cost:{gold:0},hp:200,icon:'⚰️',popCap:0,workers:0}
+    CEMETERY:{id:'CEMETERY',name:'Cemitério',w:2,h:2,cost:{gold:0},hp:200,icon:'skull',popCap:0,workers:0}
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -1601,7 +1601,7 @@ function updateRandomEvents(dt){
             for(let i=0;i<types.length;i++){
                 gs.enemies.push(new EnemyUnit(cx+rand(-80,80),cy+rand(-80,80),types[i]));
             }
-            addMessage('🧛 Ataque noturno dos vampiros!');
+            addMessage('[!] Ataque noturno dos vampiros!');
             gs.screenShake=0.5;
         }
         return;
@@ -1620,7 +1620,7 @@ function updateRandomEvents(dt){
                 let to=defTerr[randInt(0,defTerr.length-1)];
                 spawnArmy(attacker,{SWORDSMAN:randInt(4,8),ARCHER:randInt(3,6),SPEARMAN:randInt(3,6)},from,to);
                 let aN=OWNER_NAMES[attacker]||'?',dN=OWNER_NAMES[defender]||'?';
-                addMessage('⚔️ '+aN+' invadiu o '+dN+'!');
+                addMessage('[!] '+aN+' invadiu o '+dN+'!');
             }
         }
         return;
@@ -1733,7 +1733,7 @@ function conquerTerritory(army,territory){
         let prevOwner=territory.owner;
         territory.owner=army.owner;
         territory.control=100;
-        addMessage((army.owner===OWNER.PLAYER?'✅ ':'⚠️ ')+'Território conquistado por '+(OWNER_NAMES[army.owner]||'desconhecido')+'!');
+        addMessage((army.owner===OWNER.PLAYER?'[+] ':'[!] ')+'Território conquistado por '+(OWNER_NAMES[army.owner]||'desconhecido')+'!');
         // Check if main castle of previous owner was in this territory - eliminate kingdom
         if(prevOwner!==OWNER.NEUTRAL&&prevOwner!==OWNER.PLAYER){
             let castleTypes=['CASTLE','VAMP_CASTLE'];
@@ -1743,7 +1743,7 @@ function conquerTerritory(army,territory){
                     // Transfer all territories of eliminated kingdom
                     let remaining=getOwnerTerritories(prevOwner);
                     for(let t of remaining){t.owner=army.owner;t.control=80}
-                    addMessage('🏆 '+(OWNER_NAMES[prevOwner]||'Reino')+ ' foi conquistado!');
+                    addMessage('[!!] '+(OWNER_NAMES[prevOwner]||'Reino')+ ' foi conquistado!');
                     break;
                 }
             }
@@ -1788,7 +1788,7 @@ function updateArmies(dt){
                 winner.comp.ARCHER=Math.max(0,winner.comp.ARCHER-Math.floor((loser.comp.ARCHER||0)*0.45));
                 winner.comp.SPEARMAN=Math.max(0,winner.comp.SPEARMAN-Math.floor((loser.comp.SPEARMAN||0)*0.45));
                 addExplosion((a.x+b.x)/2,(a.y+b.y)/2);
-                addMessage('⚔️ Batalha de exércitos: '+(winner.owner===OWNER.PLAYER?'Jogador venceu':'Inimigo venceu'));
+                addMessage('[!] Batalha de exércitos: '+(winner.owner===OWNER.PLAYER?'Jogador venceu':'Inimigo venceu'));
                 gs.armies.splice(gs.armies.indexOf(loser),1);
                 if(armyCount(winner.comp)<=0) gs.armies.splice(gs.armies.indexOf(winner),1);
                 return;
@@ -1866,7 +1866,7 @@ function updateKingdomAI(dt){
                     {SWORDSMAN:randInt(5,10),ARCHER:randInt(4,8),SPEARMAN:randInt(4,8)};
                 spawnArmy(k.owner,comp,from,to);
                 if(target.owner===OWNER.PLAYER)
-                    addMessage('⚠️ '+k.name+' enviou um exército de invasão!');
+                    addMessage('[!] '+k.name+' enviou um exército de invasão!');
             }
             k.attackCd=(26+rand(0,12))*aggroMod;
         }
@@ -1926,7 +1926,7 @@ function unitsToArmy(units,targetOwner){
     spawnArmy(OWNER.PLAYER,comp,{x:from.x,y:from.y},{x:to.x,y:to.y});
     gs.units=gs.units.filter(u=>!units.includes(u));
     gs.selectedUnits=[];
-    addMessage('🚩 Exército do jogador mobilizado!');
+    addMessage('[+] Exército do jogador mobilizado!');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1984,9 +1984,9 @@ function updateHunger(dt){
             else if(gs.hungerTimer<=20)gs.hunger=Math.min(gs.hunger,2);
         }
         if(gs.hunger>prevHunger){
-            if(gs.hunger>=3)addMessage('💀 Fome extrema! Pessoas estão morrendo!');
-            else if(gs.hunger>=2)addMessage('⚠️ Seu povo está com fome!');
-            else if(gs.hunger>=1)addMessage('⚠️ Reservas de comida baixas!');
+            if(gs.hunger>=3)addMessage('[!!] Fome extrema! Pessoas estão morrendo!');
+            else if(gs.hunger>=2)addMessage('[!] Seu povo está com fome!');
+            else if(gs.hunger>=1)addMessage('[!] Reservas de comida baixas!');
         }
         if(gs.hunger>=3&&gs.population>1){
             gs.population--;
@@ -2038,13 +2038,13 @@ function saveGame(){
             eventTimer:gs.eventTimer
         };
         localStorage.setItem('medievalKingdom_save',JSON.stringify(data));
-        addMessage('💾 Jogo salvo com sucesso!');
-    }catch(er){addMessage('❌ Erro ao salvar: '+er.message)}
+        addMessage('[+] Jogo salvo com sucesso!');
+    }catch(er){addMessage('[x] Erro ao salvar: '+er.message)}
 }
 function loadGame(){
     try{
         let raw=localStorage.getItem('medievalKingdom_save');
-        if(!raw){addMessage('❌ Nenhum save encontrado!');return}
+        if(!raw){addMessage('[x] Nenhum save encontrado!');return}
         let data=JSON.parse(raw);
         gs.map=data.map.split('\n').map(r=>r.split('').map(Number));
         gs.resources={gold:data.resources.gold||0,food:data.resources.food||0,wood:data.resources.wood||0,stone:data.resources.stone||0};
@@ -2069,37 +2069,37 @@ function loadGame(){
         gs.selectedBuilding=null;gs.selectedBuildings=[];gs.moveMode=false;gs.movingBuilding=null;gs.moveSelectionMode=false;
         gs.selectedArmies=[];gs.movingBuildings=[];
         gs.showBuildingMenu=false;gs.showBuildMenu=false;gs.showRecruitMenu=false;gs.showDiplomacy=false;
-        addMessage('📂 Jogo carregado com sucesso!');
-    }catch(er){addMessage('❌ Erro ao carregar: '+er.message)}
+        addMessage('[+] Jogo carregado com sucesso!');
+    }catch(er){addMessage('[x] Erro ao carregar: '+er.message)}
 }
 
 // ═══════════════════════════════════════════════════════════
 // VENDER / MOVER CONSTRUÇÕES
 // ═══════════════════════════════════════════════════════════
 function sellBuilding(b){
-    if(!b||b.type==='CASTLE'){addMessage('❌ Não é possível vender o Castelo!');return}
+    if(!b||b.type==='CASTLE'){addMessage('[x] Não é possível vender o Castelo!');return}
     let cost=b.def.cost;
     gs.resources.gold+=Math.floor((cost.gold||0)*0.5);
     gs.resources.food+=Math.floor((cost.food||0)*0.5);
     gs.resources.wood+=Math.floor((cost.wood||0)*0.5);
     gs.resources.stone+=Math.floor((cost.stone||0)*0.5);
     addParticle(b.x*TILE+b.def.w*TILE/2,b.y*TILE,'+50% recursos','#FFD700');
-    addMessage('💰 '+b.def.name+' vendido!');
+    addMessage('[+] '+b.def.name+' vendido!');
     b.hp=0;
     gs.selectedBuilding=null;gs.showBuildingMenu=false;
 }
 function startMoveBuilding(b){
-    if(!b||b.type==='CASTLE'){addMessage('❌ Não é possível mover o Castelo!');return}
+    if(!b||b.type==='CASTLE'){addMessage('[x] Não é possível mover o Castelo!');return}
     gs.moveMode=true;gs.movingBuilding=b;
     gs.showBuildingMenu=false;gs.buildMode=null;
     gs.showBuildMenu=false;gs.showRecruitMenu=false;
-    addMessage('🔄 Clique no novo local para mover '+b.def.name);
+    addMessage('[~] Clique no novo local para mover '+b.def.name);
 }
 
 function startMoveSelectedBuildings(){
     if(gs.selectedBuildings.length===0) return;
     if(!gs.selectedBuildings.every(b=>b.type==='WALL')){
-        addMessage('❌ Movimento em grupo disponível apenas para muros.');
+        addMessage('[x] Movimento em grupo disponível apenas para muros.');
         return;
     }
     let minX=Math.min(...gs.selectedBuildings.map(b=>b.x));
@@ -2107,7 +2107,7 @@ function startMoveSelectedBuildings(){
     gs.moveSelectionMode=true;
     gs.movingBuildings=gs.selectedBuildings.map(b=>({building:b,ox:b.x-minX,oy:b.y-minY}));
     gs.showBuildMenu=false;gs.showRecruitMenu=false;gs.showBuildingMenu=false;
-    addMessage('🧱 Movimento em grupo: clique para reposicionar os muros selecionados.');
+    addMessage('[~] Movimento em grupo: clique para reposicionar os muros selecionados.');
 }
 
 function canPlaceMovingGroup(anchorTile){
@@ -2126,7 +2126,7 @@ function placeMovingGroup(anchorTile){
     }
     gs.moveSelectionMode=false;
     gs.movingBuildings=[];
-    addMessage('✅ Linha de muralha reposicionada.');
+    addMessage('[+] Linha de muralha reposicionada.');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2155,7 +2155,7 @@ function spawnWave(){
         gs.enemies.push(new EnemyUnit(x,y,type));
     }
     let vampMsg=gs.isNight?' (com vampiros!)':'';
-    addMessage('⚠️ Onda '+gs.waveNumber+': '+count+' inimigos se aproximam!'+vampMsg);
+    addMessage('[!] Onda '+gs.waveNumber+': '+count+' inimigos se aproximam!'+vampMsg);
     gs.screenShake=0.5;
 }
 
@@ -2185,7 +2185,7 @@ function updateResources(dt){
                     if(tNode.hp<=0){
                         delete gs.treeNodes[nodeKey(tNode.x,tNode.y)];
                         gs.map[tNode.y][tNode.x]=T.GRASS;
-                        addParticle((tNode.x+0.5)*TILE,(tNode.y+0.3)*TILE,'🌲 caiu','#8BC34A');
+                addParticle((tNode.x+0.5)*TILE,(tNode.y+0.3)*TILE,'Arvore caiu','#8BC34A');
                     }
                 }
                 continue;
@@ -2202,7 +2202,7 @@ function updateResources(dt){
                     addParticle((b.x+0.5)*TILE,b.y*TILE,'+'+gather+' stone','#B0BEC5');
                     if(sNode.hp<=0){
                         delete gs.stoneNodes[nodeKey(sNode.x,sNode.y)];
-                        addParticle((sNode.x+0.5)*TILE,(sNode.y+0.3)*TILE,'⛏️ esgotada','#90A4AE');
+                        addParticle((sNode.x+0.5)*TILE,(sNode.y+0.3)*TILE,'Esgotada','#90A4AE');
                     }
                 }
                 continue;
@@ -2335,8 +2335,8 @@ canvas.addEventListener('mousedown',(e)=>{
             let tile=w2t(mouse.wx,mouse.wy);
             if(canPlaceMovingGroup(tile)){
                 placeMovingGroup(tile);
-                addParticle(mouse.wx,mouse.wy,'✓','#00FF00');
-            }else addMessage('❌ Não há espaço para todos os muros.');
+                addParticle(mouse.wx,mouse.wy,'+','#00FF00');
+            }else addMessage('[x] Não há espaço para todos os muros.');
             return;
         }
 
@@ -2345,10 +2345,10 @@ canvas.addEventListener('mousedown',(e)=>{
             let tile=w2t(mouse.wx,mouse.wy);let def=gs.movingBuilding.def;
             if(canBuild(tile.x,tile.y,def,gs.movingBuilding)){
                 gs.movingBuilding.x=tile.x;gs.movingBuilding.y=tile.y;
-                addMessage('✅ '+def.name+' movido!');
-                addParticle(mouse.wx,mouse.wy,'✓','#00FF00');
+                addMessage('[+] '+def.name+' movido!');
+                addParticle(mouse.wx,mouse.wy,'+','#00FF00');
                 gs.moveMode=false;gs.movingBuilding=null;gs.selectedBuilding=null;
-            } else {addMessage('❌ Local inválido!')}
+            } else {addMessage('[x] Local inválido!')}
             return;
         }
 
@@ -2357,10 +2357,10 @@ canvas.addEventListener('mousedown',(e)=>{
             if(canBuild(tile.x,tile.y,def)&&canAfford(def.cost)){
                 spend(def.cost);
                 gs.buildings.push(new Building(tile.x,tile.y,gs.buildMode));
-                addMessage('✅ '+def.name+' construído!');
-                addParticle(mouse.wx,mouse.wy,'✓','#00FF00');
-            } else if(!canAfford(def.cost)){addMessage('❌ Recursos insuficientes!')}
-            else{addMessage('❌ Local inválido!')}
+                addMessage('[+] '+def.name+' construído!');
+                addParticle(mouse.wx,mouse.wy,'+','#00FF00');
+            } else if(!canAfford(def.cost)){addMessage('[x] Recursos insuficientes!')}
+            else{addMessage('[x] Local inválido!')}
         } else {
             // Check for building drag
             let dragB=null;
@@ -2381,7 +2381,7 @@ canvas.addEventListener('mousedown',(e)=>{
             let tile=w2t(mouse.wx,mouse.wy);
             if(canPlaceMovingGroup(tile)){
                 placeMovingGroup(tile);
-                addParticle(mouse.wx,mouse.wy,'🧱','#FFD700');
+                addParticle(mouse.wx,mouse.wy,'OK','#FFD700');
             }
         }
         if(gs.selectedArmies.length>0){
@@ -2389,7 +2389,7 @@ canvas.addEventListener('mousedown',(e)=>{
             let target={x:tt.x,y:tt.y};
             let to=getTerritoryCenterWorld(target.x,target.y);
             for(let a of gs.selectedArmies){a.tx=to.x;a.ty=to.y;a.targetTerritory=target}
-            addParticle(mouse.wx,mouse.wy,'⚑','#00CCFF');
+            addParticle(mouse.wx,mouse.wy,'!','#00CCFF');
         }
         if(gs.selectedUnits.length>0){
             let tgtEnemy=null;
@@ -2407,7 +2407,7 @@ canvas.addEventListener('mousedown',(e)=>{
                     u.targetEnemy=null;
                 }
             }
-            addParticle(mouse.wx,mouse.wy,'⚑','#00FF00');
+            addParticle(mouse.wx,mouse.wy,'!','#00FF00');
         }
     }
 });
@@ -2426,9 +2426,9 @@ canvas.addEventListener('mouseup',(e)=>{
             let tile=w2t(mouse.wx,mouse.wy);let def=gs.dragBuilding.def;
             if(canBuild(tile.x,tile.y,def,gs.dragBuilding)){
                 gs.dragBuilding.x=tile.x;gs.dragBuilding.y=tile.y;
-                addMessage('✅ '+def.name+' movido!');
-                addParticle(mouse.wx,mouse.wy,'✓','#00FF00');
-            }else{addMessage('❌ Local inválido!')}
+                addMessage('[+] '+def.name+' movido!');
+                addParticle(mouse.wx,mouse.wy,'+','#00FF00');
+            }else{addMessage('[x] Local inválido!')}
             gs.dragBuilding=null;gs.isDragging=false;selBox=null;return;
         }
         gs.dragBuilding=null;gs.isDragging=false;
@@ -2745,46 +2745,51 @@ function renderUI(){
 
     // ─── Barra de Recursos (Topo) ───
     let barH=52;
-    ctx.fillStyle='rgba(10,10,30,0.92)';ctx.fillRect(0,0,W,barH);
-    ctx.strokeStyle='#333';ctx.lineWidth=1;ctx.strokeRect(0,0,W,barH);
+    // Gradiente sutil no topo
+    let barGrad=ctx.createLinearGradient(0,0,0,barH);
+    barGrad.addColorStop(0,'rgba(15,15,40,0.95)');
+    barGrad.addColorStop(1,'rgba(8,8,25,0.88)');
+    ctx.fillStyle=barGrad;ctx.fillRect(0,0,W,barH);
+    ctx.strokeStyle='rgba(80,80,120,0.4)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(0,barH);ctx.lineTo(W,barH);ctx.stroke();
 
     let rates=getProductionRates();
     ctx.font='bold 13px monospace';ctx.textAlign='left';
-    let rx=12;
+    let rx=14;
     // População
     ctx.fillStyle=gs.population>=gs.popCap?'#F66':'#8CF';
-    ctx.fillText('👥 '+gs.population+'/'+gs.popCap,rx,18);
-    ctx.font='10px monospace';ctx.fillStyle='#888';
-    ctx.fillText('Livres: '+Math.max(0,getAvailablePop()),rx,34);
+    drawIC('pop',rx,3,16);ctx.fillText(gs.population+'/'+gs.popCap,rx+20,18);
+    ctx.font='10px monospace';ctx.fillStyle='#666';
+    ctx.fillText('Livres: '+Math.max(0,getAvailablePop()),rx+20,34);
     rx+=120;
     // Comida
     ctx.font='bold 13px monospace';
     ctx.fillStyle=gs.hunger>=2?'#F44':gs.hunger>=1?'#FA4':'#2ecc71';
-    ctx.fillText('🌾 '+Math.floor(gs.resources.food),rx,18);
-    ctx.font='10px monospace';ctx.fillStyle=rates.food>=0?'#8C8':'#F88';
-    ctx.fillText((rates.food>=0?'+':'')+rates.food+'/min',rx,34);
-    rx+=110;
+    drawIC('food',rx,3,16);ctx.fillText(Math.floor(gs.resources.food)+'',rx+20,18);
+    ctx.font='10px monospace';ctx.fillStyle=rates.food>=0?'#7B7':'#F88';
+    ctx.fillText((rates.food>=0?'+':'')+rates.food+'/min',rx+20,34);
+    rx+=105;
     // Madeira
     ctx.font='bold 13px monospace';ctx.fillStyle='#DEB887';
-    ctx.fillText('🪵 '+Math.floor(gs.resources.wood),rx,18);
-    ctx.font='10px monospace';ctx.fillStyle='#AA8';
-    ctx.fillText('+'+rates.wood+'/min',rx,34);
-    rx+=105;
+    drawIC('wood',rx,3,16);ctx.fillText(Math.floor(gs.resources.wood)+'',rx+20,18);
+    ctx.font='10px monospace';ctx.fillStyle='#997';
+    ctx.fillText('+'+rates.wood+'/min',rx+20,34);
+    rx+=100;
     // Pedra
     ctx.font='bold 13px monospace';ctx.fillStyle='#B0BEC5';
-    ctx.fillText('🪨 '+Math.floor(gs.resources.stone),rx,18);
-    ctx.font='10px monospace';ctx.fillStyle='#9AA8AF';
-    ctx.fillText('+'+(rates.stone||0)+'/min',rx,34);
-    rx+=105;
+    drawIC('stone',rx,3,16);ctx.fillText(Math.floor(gs.resources.stone)+'',rx+20,18);
+    ctx.font='10px monospace';ctx.fillStyle='#8898A0';
+    ctx.fillText('+'+(rates.stone||0)+'/min',rx+20,34);
+    rx+=100;
     // Ouro
     ctx.font='bold 13px monospace';ctx.fillStyle='#FFD700';
-    ctx.fillText('💰 '+Math.floor(gs.resources.gold),rx,18);
-    ctx.font='10px monospace';ctx.fillStyle='#CC8';
-    ctx.fillText('+'+rates.gold+'/min',rx,34);
-    rx+=105;
+    drawIC('gold',rx,3,16);ctx.fillText(Math.floor(gs.resources.gold)+'',rx+20,18);
+    ctx.font='10px monospace';ctx.fillStyle='#BB8';
+    ctx.fillText('+'+rates.gold+'/min',rx+20,34);
+    rx+=100;
     // Tropas
     ctx.font='bold 13px monospace';ctx.fillStyle='#87CEEB';
-    ctx.fillText('⚔️ '+gs.units.filter(u=>u.alive).length+' tropas',rx,18);
+    drawIC('swords',rx,3,16);ctx.fillText(gs.units.filter(u=>u.alive).length+' tropas',rx+20,18);
     rx+=110;
     // Territórios
     let pTerr=getOwnerTerritories(OWNER.PLAYER).length;
@@ -2792,146 +2797,165 @@ function renderUI(){
     let bTerr=getOwnerTerritories(OWNER.ENEMY_B).length;
     let vTerr=getOwnerTerritories(OWNER.VAMPIRES).length;
     ctx.fillStyle='#9FD9FF';
-    ctx.fillText('🗺️ '+pTerr+'P/'+aTerr+'B/'+bTerr+'M/'+vTerr+'V',rx,18);
-    ctx.font='10px monospace';ctx.fillStyle='#888';
+    drawIC('map',rx,3,16);ctx.fillText(pTerr+'P/'+aTerr+'B/'+bTerr+'M/'+vTerr+'V',rx+20,18);
+    ctx.font='10px monospace';ctx.fillStyle='#777';
     let next=Math.max(0,Math.ceil(65-gs.waveTimer));
-    ctx.fillText('Onda '+gs.waveNumber+' ('+next+'s)',rx,34);
-    rx+=170;
+    ctx.fillText('Onda '+gs.waveNumber+' ('+next+'s)',rx+20,34);
+    rx+=165;
     // Dia/Noite
     ctx.font='bold 13px monospace';
     ctx.fillStyle=gs.isNight?'#8888CC':'#FFDD44';
-    ctx.fillText(gs.isNight?'🌙 Noite':'☀️ Dia',rx,18);
-    ctx.font='10px monospace';ctx.fillStyle='#888';
-    ctx.fillText('[N] Diplomacia',rx,34);
-    rx+=120;
-    ctx.font='bold 13px monospace';ctx.fillStyle='#DDD';
-    ctx.fillText('🔎 x'+gs.zoom.toFixed(1),rx,18);
-    ctx.font='10px monospace';ctx.fillStyle='#888';
-    ctx.fillText('[O] Livro',rx,34);
-    rx+=90;
+    drawIC(gs.isNight?'moon':'sun',rx,3,16);ctx.fillText(gs.isNight?'Noite':'Dia',rx+20,18);
+    ctx.font='10px monospace';ctx.fillStyle='#777';
+    ctx.fillText('[N] Diplomacia',rx+20,34);
+    rx+=115;
+    ctx.font='bold 13px monospace';ctx.fillStyle='#BBB';
+    drawIC('zoom',rx,3,16);ctx.fillText('x'+gs.zoom.toFixed(1),rx+20,18);
+    ctx.font='10px monospace';ctx.fillStyle='#777';
+    ctx.fillText('[O] Livro',rx+20,34);
+    rx+=85;
     // Alerta de fome
     if(gs.hunger>=1){
         ctx.font='bold 14px monospace';
         ctx.fillStyle=gs.hunger>=3?'#F00':gs.hunger>=2?'#F60':'#FA0';
         let blink=Math.sin(gs.gameTime*4)>0;
         if(gs.hunger>=2||blink){
-            let hMsg=gs.hunger>=3?'💀 FOME EXTREMA!':gs.hunger>=2?'⚠️ FOME SEVERA!':'⚠️ Comida baixa!';
-            ctx.fillText(hMsg,rx,24);
+            let hMsg=gs.hunger>=3?'FOME EXTREMA!':gs.hunger>=2?'FOME SEVERA!':'Comida baixa!';
+            drawIC(gs.hunger>=3?'skull':'warn',rx,6,18);ctx.fillText(hMsg,rx+22,24);
         }
     }
 
     // ─── Barra de Ações (Base) ───
     let btmH=50;let btmY=H-btmH;
-    ctx.fillStyle='rgba(10,10,30,0.9)';ctx.fillRect(0,btmY,W,btmH);
-    ctx.strokeStyle='#333';ctx.strokeRect(0,btmY,W,btmH);
+    let btmGrad=ctx.createLinearGradient(0,btmY,0,H);
+    btmGrad.addColorStop(0,'rgba(8,8,25,0.88)');
+    btmGrad.addColorStop(1,'rgba(15,15,40,0.95)');
+    ctx.fillStyle=btmGrad;ctx.fillRect(0,btmY,W,btmH);
+    ctx.strokeStyle='rgba(80,80,120,0.4)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(0,btmY);ctx.lineTo(W,btmY);ctx.stroke();
 
-    ctx.font='12px monospace';ctx.fillStyle='#888';
-    ctx.fillText(' [B] Construir  [R] Recrutar  [U] Forjar  [J] Muros  [N] Diplomacia  [O] Livro  Scroll Zoom',15,btmY+20);
+    ctx.font='11px monospace';ctx.fillStyle='#666';
+    ctx.fillText(' [B] Construir  [R] Recrutar  [U] Forjar  [J] Muros  [N] Diplomacia  [O] Livro  Scroll Zoom',15,btmY+18);
 
     if(gs.isDragging&&gs.dragBuilding){
         ctx.fillStyle='#0CF';ctx.font='13px monospace';
-        ctx.fillText('🔄 Arrastando '+gs.dragBuilding.def.name+'... Solte para posicionar.',15,btmY+40);
+        drawIC('move',4,btmY+26,14);ctx.fillText('Arrastando '+gs.dragBuilding.def.name+'... Solte para posicionar.',22,btmY+40);
     } else if(gs.moveSelectionMode&&gs.movingBuildings.length>0){
         ctx.fillStyle='#0CF';ctx.font='13px monospace';
-        ctx.fillText('🧱 Reposicionando '+gs.movingBuildings.length+' muro(s) em grupo. Clique para confirmar.',15,btmY+40);
+        drawIC('wall',4,btmY+26,14);ctx.fillText('Reposicionando '+gs.movingBuildings.length+' muro(s) em grupo. Clique para confirmar.',22,btmY+40);
     } else if(gs.moveMode&&gs.movingBuilding){
         ctx.fillStyle='#0CF';ctx.font='13px monospace';
-        ctx.fillText('🔄 Movendo: '+gs.movingBuilding.def.name+'   (Clique para posicionar, ESC cancela)',15,btmY+40);
+        drawIC('move',4,btmY+26,14);ctx.fillText('Movendo: '+gs.movingBuilding.def.name+'   (Clique para posicionar, ESC cancela)',22,btmY+40);
     } else if(gs.buildMode){
         let def=BUILD[gs.buildMode];
         ctx.fillStyle='#FFD700';ctx.font='13px monospace';
-        ctx.fillText('🏗️ Construindo: '+def.name+'   Custo: 💰'+def.cost.gold+' 🌾'+def.cost.food+' 🪵'+def.cost.wood+' 🪨'+(def.cost.stone||0)+'   (Clique para posicionar, ESC cancela)',15,btmY+40);
+        drawIC('build',4,btmY+26,14);
+        let costStr='Construindo: '+def.name+'   Custo: G:'+def.cost.gold+' F:'+def.cost.food+' W:'+def.cost.wood+' S:'+(def.cost.stone||0)+'   (Clique para posicionar, ESC cancela)';
+        ctx.fillText(costStr,22,btmY+40);
     } else if(gs.showBuildingMenu&&gs.selectedBuilding){
         let sb=gs.selectedBuilding;
         ctx.fillStyle='#FFD700';ctx.font='13px monospace';
-        ctx.fillText('🏰 '+sb.def.name+' | HP: '+sb.hp+'/'+sb.maxHp+(sb.type!=='CASTLE'?'   [M] Mover   [V] Vender':'')+'   [ESC] Fechar',15,btmY+40);
+        drawIC('castle',4,btmY+26,14);ctx.fillText(sb.def.name+' | HP: '+sb.hp+'/'+sb.maxHp+(sb.type!=='CASTLE'?'   [M] Mover   [V] Vender':'')+'   [ESC] Fechar',22,btmY+40);
     } else if(gs.selectedArmies.length>0){
         let total=gs.selectedArmies.reduce((acc,a)=>acc+armyCount(a.comp),0);
         ctx.fillStyle='#65D6FF';ctx.font='13px monospace';
-        ctx.fillText('🚩 '+gs.selectedArmies.length+' exército(s) selecionado(s) | tropas: '+total+' | Clique direito para comandar conquista/defesa',15,btmY+40);
+        drawIC('flag',4,btmY+26,14);ctx.fillText(gs.selectedArmies.length+' exercito(s) | tropas: '+total+' | Clique direito para comandar conquista/defesa',22,btmY+40);
     } else if(gs.selectedUnits.length>0){
         let info=gs.selectedUnits.length+' unidade(s) | ';
         let types={};gs.selectedUnits.forEach(u=>{types[u.name]=(types[u.name]||0)+1});
         for(let t in types)info+=types[t]+'x '+t+' ';
-        ctx.fillStyle='#0F0';ctx.font='13px monospace';ctx.fillText('✦ '+info+' | Clique direito: mover/atacar | [G] mobiliza para exército',15,btmY+40);
+        ctx.fillStyle='#0F0';ctx.font='13px monospace';
+        drawIC('star',4,btmY+26,14);ctx.fillText(info+' | Clique direito: mover/atacar | [G] mobiliza para exercito',22,btmY+40);
     } else if(gs.selectedBuildings.length>1){
         ctx.fillStyle='#FFD700';ctx.font='13px monospace';
-        ctx.fillText('🧱 '+gs.selectedBuildings.length+' construções selecionadas | [M] mover grupo de muros',15,btmY+40);
+        drawIC('wall',4,btmY+26,14);ctx.fillText(gs.selectedBuildings.length+' construcoes selecionadas | [M] mover grupo de muros',22,btmY+40);
     } else {
-        ctx.fillStyle='#9CC';ctx.font='12px monospace';
-        ctx.fillText('⚙️ Forja:'+gs.upgrades.forge+'/5  |  Alvenaria:'+gs.upgrades.masonry+'/5',15,btmY+40);
+        ctx.fillStyle='#9BB';ctx.font='12px monospace';
+        drawIC('gear',4,btmY+26,14);ctx.fillText('Forja:'+gs.upgrades.forge+'/5  |  Alvenaria:'+gs.upgrades.masonry+'/5',22,btmY+40);
     }
 
     // ─── Menu Construção ───
     if(gs.showBuildMenu){
-        let mw=260,mh=BUILD_LIST.length*48+45,mx=15,my=btmY-mh-10;
-        ctx.fillStyle='rgba(15,15,35,0.95)';ctx.fillRect(mx,my,mw,mh);
-        ctx.strokeStyle='#FFD700';ctx.lineWidth=2;ctx.strokeRect(mx,my,mw,mh);
-        ctx.fillStyle='#FFD700';ctx.font='bold 15px monospace';ctx.fillText('🏗️ CONSTRUÇÕES',mx+10,my+24);
+        let mw=280,mh=BUILD_LIST.length*48+45,mx=15,my=btmY-mh-10;
+        ctx.fillStyle='rgba(12,12,30,0.96)';ctx.fillRect(mx,my,mw,mh);
+        ctx.strokeStyle='rgba(255,215,0,0.5)';ctx.lineWidth=2;ctx.strokeRect(mx,my,mw,mh);
+        // Header
+        ctx.fillStyle='rgba(255,215,0,0.08)';ctx.fillRect(mx+1,my+1,mw-2,30);
+        drawIC('build',mx+10,my+6,18);
+        ctx.fillStyle='#FFD700';ctx.font='bold 14px monospace';ctx.fillText('CONSTRUCOES',mx+34,my+22);
 
         for(let i=0;i<BUILD_LIST.length;i++){
             let type=BUILD_LIST[i],def=BUILD[type];
             let by=my+35+i*48,ok=canAfford(def.cost);
-            ctx.fillStyle=type===gs.buildMode?'rgba(255,215,0,0.2)':'rgba(40,40,70,0.8)';
+            ctx.fillStyle=type===gs.buildMode?'rgba(255,215,0,0.15)':'rgba(35,35,60,0.8)';
             ctx.fillRect(mx+5,by,mw-10,42);
-            ctx.strokeStyle=ok?'#555':'#422';ctx.lineWidth=1;ctx.strokeRect(mx+5,by,mw-10,42);
-            ctx.fillStyle=ok?'#FFF':'#666';ctx.font='13px monospace';
-            ctx.fillText('['+(i+1)+'] '+def.icon+' '+def.name,mx+12,by+18);
-            ctx.fillStyle=ok?'#AAA':'#555';ctx.font='10px monospace';
-            let info='💰'+def.cost.gold+' 🌾'+def.cost.food+' 🪵'+def.cost.wood+' 🪨'+(def.cost.stone||0);
-            if(def.popCap>0)info+=' | 👥+'+def.popCap;
+            ctx.strokeStyle=ok?'rgba(100,100,140,0.5)':'rgba(100,50,50,0.5)';ctx.lineWidth=1;ctx.strokeRect(mx+5,by,mw-10,42);
+            // Icon
+            drawIC(def.icon,mx+10,by+4,16);
+            ctx.fillStyle=ok?'#EEE':'#666';ctx.font='13px monospace';
+            ctx.fillText('['+(i+1)+'] '+def.name,mx+30,by+18);
+            ctx.fillStyle=ok?'#999':'#555';ctx.font='10px monospace';
+            let info='G:'+def.cost.gold+' F:'+def.cost.food+' W:'+def.cost.wood+' S:'+(def.cost.stone||0);
+            if(def.popCap>0)info+=' | Pop +'+def.popCap;
             if(def.produces)info+=' | '+JSON.stringify(def.produces).replace(/[{}"]/g,'');
-            if(def.workers>0)info+=' | ⚒️'+def.workers+' trab.';
-            ctx.fillText(info,mx+12,by+34);
+            if(def.workers>0)info+=' | '+def.workers+' trab.';
+            ctx.fillText(info,mx+30,by+34);
             uiButtons.push({x:mx+5,y:by,w:mw-10,h:42,fn:()=>{gs.buildMode=type}});
         }
     }
 
     // ─── Menu Recrutamento ───
     if(gs.showRecruitMenu){
-        let mw=280,mh=UNIT_LIST.length*48+55,mx=290,my=btmY-mh-10;
-        ctx.fillStyle='rgba(15,15,35,0.95)';ctx.fillRect(mx,my,mw,mh);
-        ctx.strokeStyle='#C44';ctx.lineWidth=2;ctx.strokeRect(mx,my,mw,mh);
-        ctx.fillStyle='#F66';ctx.font='bold 15px monospace';ctx.fillText('⚔️ RECRUTAR TROPAS',mx+10,my+24);
+        let mw=300,mh=UNIT_LIST.length*48+55,mx=310,my=btmY-mh-10;
+        ctx.fillStyle='rgba(12,12,30,0.96)';ctx.fillRect(mx,my,mw,mh);
+        ctx.strokeStyle='rgba(200,70,70,0.5)';ctx.lineWidth=2;ctx.strokeRect(mx,my,mw,mh);
+        // Header
+        ctx.fillStyle='rgba(200,70,70,0.08)';ctx.fillRect(mx+1,my+1,mw-2,30);
+        drawIC('swords',mx+10,my+6,18);
+        ctx.fillStyle='#F66';ctx.font='bold 14px monospace';ctx.fillText('RECRUTAR TROPAS',mx+34,my+22);
 
         let hb=hasBarracks();
         for(let i=0;i<UNIT_LIST.length;i++){
             let type=UNIT_LIST[i],def=UDEF[type];
             let by=my+35+i*48,ok=canAfford(def.cost)&&hb&&getAvailablePop()>=(def.cost.pop||0);
-            ctx.fillStyle='rgba(40,40,70,0.8)';ctx.fillRect(mx+5,by,mw-10,42);
-            ctx.strokeStyle=ok?'#555':'#422';ctx.lineWidth=1;ctx.strokeRect(mx+5,by,mw-10,42);
-            ctx.fillStyle=ok?'#FFF':'#666';ctx.font='13px monospace';
-            ctx.fillText('['+(i+1)+'] '+def.icon+' '+def.name,mx+12,by+18);
-            ctx.fillStyle=ok?'#AAA':'#555';ctx.font='10px monospace';
-            ctx.fillText('💰'+def.cost.gold+' 🌾'+def.cost.food+' 👥'+(def.cost.pop||0)+' | HP:'+def.hp+' ATK:'+def.atk+' DEF:'+def.def,mx+12,by+34);
+            ctx.fillStyle='rgba(35,35,60,0.8)';ctx.fillRect(mx+5,by,mw-10,42);
+            ctx.strokeStyle=ok?'rgba(100,100,140,0.5)':'rgba(100,50,50,0.5)';ctx.lineWidth=1;ctx.strokeRect(mx+5,by,mw-10,42);
+            drawIC(def.icon,mx+10,by+4,16);
+            ctx.fillStyle=ok?'#EEE':'#666';ctx.font='13px monospace';
+            ctx.fillText('['+(i+1)+'] '+def.name,mx+30,by+18);
+            ctx.fillStyle=ok?'#999':'#555';ctx.font='10px monospace';
+            ctx.fillText('G:'+def.cost.gold+' F:'+def.cost.food+' Pop:'+(def.cost.pop||0)+' | HP:'+def.hp+' ATK:'+def.atk+' DEF:'+def.def,mx+30,by+34);
             uiButtons.push({x:mx+5,y:by,w:mw-10,h:42,fn:()=>{recruitUnit(type)}});
         }
-        if(!hb){ctx.fillStyle='#F44';ctx.font='12px monospace';ctx.fillText('⚠️ Construa um Quartel primeiro!',mx+10,my+mh-8)}
+        if(!hb){ctx.fillStyle='#F44';ctx.font='12px monospace';drawIC('warn',mx+10,my+mh-16,14);ctx.fillText('Construa um Quartel primeiro!',mx+28,my+mh-6)}
     }
 
     // ─── Menu Construção Selecionada ───
     if(gs.showBuildingMenu&&gs.selectedBuilding&&!gs.showRecruitMenu){
         let sb=gs.selectedBuilding;
-        let mw=240,mh=sb.type==='CASTLE'?80:160,mx=W/2-mw/2,my=btmY-mh-15;
-        ctx.fillStyle='rgba(15,15,35,0.95)';ctx.fillRect(mx,my,mw,mh);
-        ctx.strokeStyle='#FFD700';ctx.lineWidth=2;ctx.strokeRect(mx,my,mw,mh);
-        ctx.fillStyle='#FFD700';ctx.font='bold 14px monospace';ctx.fillText(sb.def.icon+' '+sb.def.name,mx+10,my+22);
+        let mw=250,mh=sb.type==='CASTLE'?80:160,mx=W/2-mw/2,my=btmY-mh-15;
+        ctx.fillStyle='rgba(12,12,30,0.96)';ctx.fillRect(mx,my,mw,mh);
+        ctx.strokeStyle='rgba(255,215,0,0.5)';ctx.lineWidth=2;ctx.strokeRect(mx,my,mw,mh);
+        drawIC(sb.def.icon,mx+10,my+6,18);
+        ctx.fillStyle='#FFD700';ctx.font='bold 14px monospace';ctx.fillText(sb.def.name,mx+34,my+22);
         ctx.fillStyle='#AAA';ctx.font='12px monospace';
         ctx.fillText('HP: '+sb.hp+'/'+sb.maxHp,mx+10,my+40);
         if(sb.def.produces){let pr='';for(let r in sb.def.produces)pr+=r+':+'+sb.def.produces[r]+' ';ctx.fillText('Produz: '+pr,mx+10,my+56)}
         if(sb.type!=='CASTLE'){
             // Mover button
             let btnY1=my+mh-70;
-            ctx.fillStyle='rgba(0,100,200,0.6)';ctx.fillRect(mx+10,btnY1,mw-20,28);
-            ctx.strokeStyle='#0CF';ctx.lineWidth=1;ctx.strokeRect(mx+10,btnY1,mw-20,28);
-            ctx.fillStyle='#FFF';ctx.font='13px monospace';ctx.fillText('🔄 [M] Mover',mx+55,btnY1+18);
+            ctx.fillStyle='rgba(0,100,200,0.5)';ctx.fillRect(mx+10,btnY1,mw-20,28);
+            ctx.strokeStyle='rgba(0,180,255,0.4)';ctx.lineWidth=1;ctx.strokeRect(mx+10,btnY1,mw-20,28);
+            drawIC('move',mx+16,btnY1+5,16);
+            ctx.fillStyle='#FFF';ctx.font='13px monospace';ctx.fillText('[M] Mover',mx+38,btnY1+18);
             uiButtons.push({x:mx+10,y:btnY1,w:mw-20,h:28,fn:()=>{startMoveBuilding(sb)}});
             // Vender button
             let btnY2=my+mh-36;
             let refG=Math.floor((sb.def.cost.gold||0)*0.5),refW=Math.floor((sb.def.cost.wood||0)*0.5);
-            ctx.fillStyle='rgba(180,50,50,0.6)';ctx.fillRect(mx+10,btnY2,mw-20,28);
-            ctx.strokeStyle='#F66';ctx.lineWidth=1;ctx.strokeRect(mx+10,btnY2,mw-20,28);
-            ctx.fillStyle='#FFF';ctx.font='13px monospace';ctx.fillText('💰 [V] Vender ('+refG+'g '+refW+'w)',mx+30,btnY2+18);
+            ctx.fillStyle='rgba(180,50,50,0.5)';ctx.fillRect(mx+10,btnY2,mw-20,28);
+            ctx.strokeStyle='rgba(255,100,100,0.4)';ctx.lineWidth=1;ctx.strokeRect(mx+10,btnY2,mw-20,28);
+            drawIC('gold',mx+16,btnY2+5,16);
+            ctx.fillStyle='#FFF';ctx.font='13px monospace';ctx.fillText('[V] Vender ('+refG+'g '+refW+'w)',mx+38,btnY2+18);
             uiButtons.push({x:mx+10,y:btnY2,w:mw-20,h:28,fn:()=>{sellBuilding(sb)}});
         }
     }
@@ -2940,11 +2964,23 @@ function renderUI(){
     for(let i=0;i<gs.messages.length;i++){
         let m=gs.messages[i],a=Math.min(1,m.timer);
         ctx.globalAlpha=a;
-        let my2=55+i*28;
-        ctx.fillStyle='rgba(0,0,0,0.75)';
-        ctx.font='13px monospace';let tw=ctx.measureText(m.text).width;
-        ctx.fillRect(W/2-tw/2-12,my2-14,tw+24,22);
-        ctx.fillStyle='#FFF';ctx.textAlign='center';ctx.fillText(m.text,W/2,my2);
+        let my2=56+i*26;
+        ctx.font='12px monospace';let tw=ctx.measureText(m.text).width;
+        // Determinar tipo de mensagem e cor de borda
+        let msgBorder='rgba(100,100,140,0.4)';let msgIcon=null;
+        if(m.text.startsWith('[x]')){msgBorder='rgba(220,60,60,0.5)';msgIcon='error'}
+        else if(m.text.startsWith('[+]')){msgBorder='rgba(60,180,60,0.5)';msgIcon='check'}
+        else if(m.text.startsWith('[!]')||m.text.startsWith('[!!]')){msgBorder='rgba(220,160,40,0.6)';msgIcon='warn'}
+        else if(m.text.startsWith('[~]')){msgBorder='rgba(80,140,220,0.5)';msgIcon='dove'}
+        else if(m.text.startsWith('[i]')){msgBorder='rgba(100,160,220,0.4)';msgIcon='gear'}
+        // Strip prefix
+        let txt=m.text.replace(/^\[!*\]\s*/,'').replace(/^\[x\]\s*/,'').replace(/^\[~\]\s*/,'').replace(/^\[\+\]\s*/,'').replace(/^\[i\]\s*/,'');
+        let totalW=tw+24+(msgIcon?20:0);
+        let msgX=W/2-(totalW)/2;
+        ctx.fillStyle='rgba(8,8,20,0.82)';ctx.fillRect(msgX,my2-14,totalW,22);
+        ctx.strokeStyle=msgBorder;ctx.lineWidth=1;ctx.strokeRect(msgX,my2-14,totalW,22);
+        if(msgIcon) drawIC(msgIcon,msgX+4,my2-11,16);
+        ctx.fillStyle='#e0e0e8';ctx.textAlign='center';ctx.fillText(txt,W/2+(msgIcon?8:0),my2);
         ctx.textAlign='left';ctx.globalAlpha=1;
     }
 
@@ -3032,21 +3068,22 @@ function renderUI(){
         ctx.fillStyle='rgba(8,8,18,0.94)';ctx.fillRect(dx2,dy2,dw,dh);
         ctx.strokeStyle='#CC4444';ctx.lineWidth=3;ctx.strokeRect(dx2,dy2,dw,dh);
         ctx.fillStyle='#FFD700';ctx.font='bold 22px monospace';ctx.textAlign='left';
-        ctx.fillText('⚔️ Diplomacia dos Reinos',dx2+20,dy2+32);
+        drawIC('diplomacy',dx2+18,dy2+14,22);ctx.fillText('Diplomacia dos Reinos',dx2+46,dy2+32);
         ctx.font='11px monospace';ctx.fillStyle='#aaa';
         ctx.fillText('[N] ou [ESC] para fechar',dx2+20,dy2+50);
 
         let kingdoms=[
-            {owner:OWNER.ENEMY_A,name:'Reino dos Bárbaros',icon:'🪓',color:'#F06262'},
-            {owner:OWNER.ENEMY_B,name:'Reino dos Magos',icon:'🔮',color:'#BA68C8'},
-            {owner:OWNER.VAMPIRES,name:'Reino dos Vampiros',icon:'🧛',color:'#CC0000'}
+            {owner:OWNER.ENEMY_A,name:'Reino dos Bárbaros',icon:'axe',color:'#F06262'},
+            {owner:OWNER.ENEMY_B,name:'Reino dos Magos',icon:'crystal',color:'#BA68C8'},
+            {owner:OWNER.VAMPIRES,name:'Reino dos Vampiros',icon:'vampire',color:'#CC0000'}
         ];
         let ky=dy2+75;
         for(let ki=0;ki<kingdoms.length;ki++){
             let kd=kingdoms[ki];
             let state=getDiplo(OWNER.PLAYER,kd.owner);
             let terrs=getOwnerTerritories(kd.owner).length;
-            let stateStr=state===DIPLO.WAR?'⚔️ GUERRA':state===DIPLO.ALLIANCE?'🤝 ALIANÇA':state===DIPLO.PEACE?'🕊️ PAZ':'😐 NEUTRO';
+            let stateStr=state===DIPLO.WAR?'GUERRA':state===DIPLO.ALLIANCE?'ALIANCA':state===DIPLO.PEACE?'PAZ':'NEUTRO';
+            let stateIC=state===DIPLO.WAR?'swords':state===DIPLO.ALLIANCE?'handshake':state===DIPLO.PEACE?'dove':'neutral';
             let stateColor=state===DIPLO.WAR?'#F44':state===DIPLO.ALLIANCE?'#4F4':state===DIPLO.PEACE?'#8CF':'#AAA';
             let rh=88;
 
@@ -3056,11 +3093,11 @@ function renderUI(){
 
             // Info do reino
             ctx.fillStyle=kd.color;ctx.font='bold 16px monospace';
-            ctx.fillText(kd.icon+' '+kd.name,dx2+28,ky+22);
+            drawIC(kd.icon,dx2+26,ky+6,18);ctx.fillText(kd.name,dx2+50,ky+22);
             ctx.fillStyle='#AAA';ctx.font='12px monospace';
             ctx.fillText('Territórios: '+terrs+'  |  Estado: ',dx2+28,ky+42);
             let tw=ctx.measureText('Territórios: '+terrs+'  |  Estado: ').width;
-            ctx.fillStyle=stateColor;ctx.fillText(stateStr,dx2+28+tw,ky+42);
+            drawIC(stateIC,dx2+28+tw,ky+30,14);ctx.fillStyle=stateColor;ctx.fillText(stateStr,dx2+28+tw+18,ky+42);
 
             // Botões de ação
             let btnW=110,btnH=26,btnY=ky+52;
@@ -3069,7 +3106,7 @@ function renderUI(){
                 let bx1=dx2+28;
                 ctx.fillStyle='rgba(200,50,50,0.7)';ctx.fillRect(bx1,btnY,btnW,btnH);
                 ctx.strokeStyle='#F44';ctx.lineWidth=1;ctx.strokeRect(bx1,btnY,btnW,btnH);
-                ctx.fillStyle='#FFF';ctx.font='11px monospace';ctx.fillText('⚔️ Guerra',bx1+10,btnY+17);
+                ctx.fillStyle='#FFF';ctx.font='11px monospace';drawIC('swords',bx1+6,btnY+3,16);ctx.fillText('Guerra',bx1+28,btnY+17);
                 uiButtons.push({x:bx1,y:btnY,w:btnW,h:btnH,fn:()=>{declareWar(OWNER.PLAYER,kd.owner)}});
             }
             // Botão 2: Fazer Aliança (se em guerra ou neutro)
@@ -3078,7 +3115,7 @@ function renderUI(){
                 if(state!==DIPLO.WAR) bx2=dx2+28+btnW+10;
                 ctx.fillStyle='rgba(50,150,50,0.7)';ctx.fillRect(bx2,btnY,btnW,btnH);
                 ctx.strokeStyle='#4F4';ctx.lineWidth=1;ctx.strokeRect(bx2,btnY,btnW,btnH);
-                ctx.fillStyle='#FFF';ctx.font='11px monospace';ctx.fillText('🤝 Aliança',bx2+8,btnY+17);
+                ctx.fillStyle='#FFF';ctx.font='11px monospace';drawIC('handshake',bx2+6,btnY+3,16);ctx.fillText('Alianca',bx2+28,btnY+17);
                 uiButtons.push({x:bx2,y:btnY,w:btnW,h:btnH,fn:()=>{makeAlliance(OWNER.PLAYER,kd.owner)}});
             }
             // Botão 3: Fazer Paz (se em guerra)
@@ -3086,7 +3123,7 @@ function renderUI(){
                 let bx3=dx2+28+btnW+10;
                 ctx.fillStyle='rgba(80,130,200,0.7)';ctx.fillRect(bx3,btnY,btnW,btnH);
                 ctx.strokeStyle='#8CF';ctx.lineWidth=1;ctx.strokeRect(bx3,btnY,btnW,btnH);
-                ctx.fillStyle='#FFF';ctx.font='11px monospace';ctx.fillText('🕊️ Paz',bx3+20,btnY+17);
+                ctx.fillStyle='#FFF';ctx.font='11px monospace';drawIC('dove',bx3+6,btnY+3,16);ctx.fillText('Paz',bx3+28,btnY+17);
                 uiButtons.push({x:bx3,y:btnY,w:btnW,h:btnH,fn:()=>{makePeace(OWNER.PLAYER,kd.owner)}});
             }
 
@@ -3104,12 +3141,13 @@ function renderUI(){
         ];
         for(let pair of aiPairs){
             let st=getDiplo(pair[0],pair[1]);
-            let stStr=st===DIPLO.WAR?'⚔️ GUERRA':st===DIPLO.ALLIANCE?'🤝 ALIANÇA':st===DIPLO.PEACE?'🕊️ PAZ':'😐 NEUTRO';
+            let stStr=st===DIPLO.WAR?'GUERRA':st===DIPLO.ALLIANCE?'ALIANCA':st===DIPLO.PEACE?'PAZ':'NEUTRO';
+            let stIC=st===DIPLO.WAR?'swords':st===DIPLO.ALLIANCE?'handshake':st===DIPLO.PEACE?'dove':'neutral';
             let stCol=st===DIPLO.WAR?'#F44':st===DIPLO.ALLIANCE?'#4F4':st===DIPLO.PEACE?'#8CF':'#AAA';
             ctx.fillStyle='#CCC';ctx.font='12px monospace';
             ctx.fillText(pair[2]+' ↔ '+pair[3]+': ',dx2+28,ky);
             let tw2=ctx.measureText(pair[2]+' ↔ '+pair[3]+': ').width;
-            ctx.fillStyle=stCol;ctx.fillText(stStr,dx2+28+tw2,ky);
+            drawIC(stIC,dx2+28+tw2,ky-12,14);ctx.fillStyle=stCol;ctx.fillText(stStr,dx2+28+tw2+18,ky);
             ky+=22;
         }
         ctx.textAlign='left';
@@ -3119,7 +3157,7 @@ function renderUI(){
     if(gs.paused){
         ctx.fillStyle='rgba(0,0,0,0.6)';ctx.fillRect(0,0,W,H);
         ctx.fillStyle='#FFD700';ctx.font='bold 48px monospace';ctx.textAlign='center';
-        ctx.fillText('⏸ PAUSADO',W/2,H/2);
+        drawIC('pause',W/2-160,H/2-36,40);ctx.fillText('PAUSADO',W/2,H/2);
         ctx.font='18px monospace';ctx.fillStyle='#AAA';
         ctx.fillText('Pressione [P] para continuar',W/2,H/2+40);
         ctx.textAlign='left';
@@ -3129,7 +3167,7 @@ function renderUI(){
     if(gs.phase==='gameover'){
         ctx.fillStyle='rgba(0,0,0,0.75)';ctx.fillRect(0,0,W,H);
         ctx.fillStyle='#FF0000';ctx.font='bold 52px monospace';ctx.textAlign='center';
-        ctx.fillText('💀 DERROTA!',W/2,H/2-30);
+        drawIC('skull',W/2-180,H/2-65,44);ctx.fillText('DERROTA!',W/2,H/2-30);
         ctx.font='20px monospace';ctx.fillStyle='#CCC';
         ctx.fillText('Seu castelo foi destruído!',W/2,H/2+10);
         ctx.fillText('Ondas sobrevividas: '+gs.waveNumber,W/2,H/2+40);
@@ -3160,7 +3198,7 @@ function renderMenu(){
     // Título
     let glow=0.7+Math.sin(gs.gameTime*2)*0.3;
     ctx.fillStyle=`rgba(255,215,0,${glow})`;ctx.font='bold 56px monospace';ctx.textAlign='center';
-    ctx.fillText('⚔️ REINO MEDIEVAL ⚔️',W/2,H/2-100);
+    drawIC('swords',W/2-280,H/2-136,40);ctx.fillText('REINO MEDIEVAL',W/2,H/2-100);drawIC('swords',W/2+140,H/2-136,40);
 
     ctx.fillStyle='#CCC';ctx.font='20px monospace';
     ctx.fillText('Pixel Art Strategy Game',W/2,H/2-60);
@@ -3172,23 +3210,25 @@ function renderMenu(){
     // Instruções
     ctx.fillStyle='#888';ctx.font='13px monospace';
     let info=[
-        '🎮 WASD - Mover o Rei',
-        '🏗️ [B] - Menu de Construção',
-        '⚔️ [R] - Menu de Recrutamento',
-        '⛏️ Pedreira minera pedra perto das rochas',
-        '⚒️ [U] melhora espadas | [J] reforca muralhas',
-        '🚩 [G] - Converter tropas em exército',
-        '🔎 Scroll - Zoom / Botão do meio arrasta câmera',
-        '📖 [O] - Livro de ajuda com pesquisa',
-        '🖱️ Arrastar construção para mover',
-        '🖱️ Click direito - Mover/Atacar tropas',
-        '👥 Construa casas para aumentar população',
-        '🌾 Produza comida para evitar a fome',
-        '💾 [F5] Salvar  |  📂 [F9] Carregar',
-        '⏸ [P] - Pausar'
+        'WASD - Mover o Rei',
+        '[B] - Menu de Construcao',
+        '[R] - Menu de Recrutamento',
+        'Pedreira minera pedra perto das rochas',
+        '[U] melhora espadas | [J] reforca muralhas',
+        '[G] - Converter tropas em exercito',
+        'Scroll - Zoom / Botao do meio arrasta camera',
+        '[O] - Livro de ajuda com pesquisa',
+        'Arrastar construcao para mover',
+        'Click direito - Mover/Atacar tropas',
+        'Construa casas para aumentar populacao',
+        'Produza comida para evitar a fome',
+        '[F5] Salvar  |  [F9] Carregar',
+        '[P] - Pausar'
     ];
+    let infoIcons=['gamepad','build','swords','quarry','hammer','flag','zoom','book','mouse','mouse','pop','food','save','pause'];
     for(let i=0;i<info.length;i++){
-        ctx.fillText(info[i],W/2,H/2+60+i*22);
+        drawIC(infoIcons[i],W/2-240,H/2+48+i*22,14);
+        ctx.fillText(info[i],W/2-218,H/2+60+i*22);
     }
 
     ctx.fillStyle='#555';ctx.font='11px monospace';
@@ -3250,7 +3290,7 @@ function gameLoop(timestamp){
                 let e=gs.enemies[i];
                 gs.resources.gold+=e.loot.gold;
                 gs.resources.food+=e.loot.food;
-                addParticle(e.x,e.y-5,'+'+e.loot.gold+'💰','#FFD700');
+                addParticle(e.x,e.y-5,'+'+e.loot.gold+'g','#FFD700');
                 gs.enemies.splice(i,1);
             }
         }
@@ -3295,7 +3335,7 @@ function gameLoop(timestamp){
             if(c){
                 gs.king.hp=gs.king.maxHp;gs.king.alive=true;
                 gs.king.x=(c.x+1.5)*TILE;gs.king.y=(c.y+3.5)*TILE;
-                addMessage('👑 O Rei retornou ao castelo!');
+                addMessage('[+] O Rei retornou ao castelo!');
             }
         }
     }
