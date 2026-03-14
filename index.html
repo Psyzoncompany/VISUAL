@@ -30,6 +30,20 @@ const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 let W, H, COLS, ROWS;
 
+// ─── Mobile detection (must be before resize()) ───
+const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+const mobileUI = {
+    showBuildPanel: false,
+    showRecruitPanel: false,
+    showArmyPanel: false,
+    showBattleButtons: false,
+    buildGhost: null,
+    touchButtons: [],
+    isLandscape: false,
+    safeInsetTop: 0,
+    safeInsetBottom: 0
+};
+
 function resize() {
     W = canvas.width = window.innerWidth;
     H = canvas.height = window.innerHeight;
@@ -348,9 +362,8 @@ let selBox = null;
 let uiButtons = [];
 
 // ═══════════════════════════════════════════════════════════
-// DETECÇÃO MOBILE E ESTADO TOUCH
+// ESTADO TOUCH
 // ═══════════════════════════════════════════════════════════
-const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 const touch = {
     active: false,
     startX: 0, startY: 0,
@@ -364,19 +377,6 @@ const touch = {
     isLongPress: false,
     dragThreshold: 12,
     moved: false
-};
-
-// Mobile UI state
-const mobileUI = {
-    showBuildPanel: false,
-    showRecruitPanel: false,
-    showArmyPanel: false,
-    showBattleButtons: false,
-    buildGhost: null,  // {type, tileX, tileY} for ghost placement
-    touchButtons: [],   // touch-specific UI buttons
-    isLandscape: false, // orientation detection
-    safeInsetTop: 0,
-    safeInsetBottom: 0
 };
 
 // Auto-save state
