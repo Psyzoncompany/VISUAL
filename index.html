@@ -35,6 +35,12 @@ function resize() {
     H = canvas.height = window.innerHeight;
     COLS = Math.ceil(W / TILE) + 2;
     ROWS = Math.ceil(H / TILE) + 2;
+    // Detect orientation for mobile UI adaptation
+    if(isMobile){
+        mobileUI.isLandscape = W > H;
+        mobileUI.safeInsetTop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('env(safe-area-inset-top)'))||0;
+        mobileUI.safeInsetBottom = parseInt(getComputedStyle(document.documentElement).getPropertyValue('env(safe-area-inset-bottom)'))||0;
+    }
     if(globalThis.__gameState&&globalThis.__gameState.camera){clampCamera();updateMouseWorld()}
 }
 window.addEventListener('resize', resize);
@@ -105,6 +111,8 @@ const OWNER_NAMES = {
 
 // Spritesheet config
 const CHAR_FW=64,CHAR_FH=64;
+const ANIMAL_FW=32,ANIMAL_FH=32;   // animal sprite frame size (32x32 grid, 4 directional rows)
+const HUNTER_FW=256,HUNTER_FH=256; // hunter sprite frame size (256x256 grid, 4 rows)
 const ANIM_FRAMES={idle:12,walk:6,attack:8,run:8,death:7,hurt:5};
 const DIR_TO_ROW=[0,3,1,2]; // game dir 0=down,1=up,2=left,3=right → spritesheet row
 const ORC_DIR_TO_ROW=[3,0,1,2]; // orc sheets have vertical rows inverted relative to the swordsman sheets
@@ -131,6 +139,108 @@ const ANIMAL_TYPES=['cervo','javali','coelho','lobo'];
 const ANIMAL_SPRITE_PATH='sprites/animais/PNG/Without_shadow';
 const DAY_CYCLE=180;
 const DIPLO={WAR:'war',NEUTRAL:'neutral',PEACE:'peace',ALLIANCE:'alliance'};
+
+// ═══════════════════════════════════════════════════════════
+// PERSONALIDADE DOS REINOS
+// ═══════════════════════════════════════════════════════════
+const KINGDOM_TRAITS = {
+    [OWNER.PLAYER]: {
+        name:'Reino Humano', style:'equilibrado',
+        atkBonus:1.0, defBonus:1.15, spdBonus:1.0, econBonus:1.1,
+        desc:'Equilibrado: defesa forte e economia estavel'
+    },
+    [OWNER.ENEMY_A]: {
+        name:'Reino dos Barbaros', style:'agressivo',
+        atkBonus:1.0, defBonus:0.85, spdBonus:1.2, econBonus:0.9,
+        spawnRate:1.4, desc:'Agressivo: ataca rapido, muitos soldados, pouca defesa'
+    },
+    [OWNER.ENEMY_B]: {
+        name:'Reino dos Magos', style:'magico',
+        atkBonus:1.3, defBonus:1.0, spdBonus:0.9, econBonus:0.85,
+        magicPower:1.5, desc:'Magico: poucas tropas, magia poderosa, unidades caras'
+    },
+    [OWNER.VAMPIRES]: {
+        name:'Reino dos Vampiros', style:'noturno',
+        atkBonus:1.0, defBonus:0.9, spdBonus:1.1, econBonus:0.7,
+        nightAtkBonus:1.3, dayAtkPenalty:0.75, lifeSteal:0.25,
+        desc:'Noturno: agressivo a noite, unidades roubam vida'
+    }
+};
+
+// ═══════════════════════════════════════════════════════════
+// SISTEMA DE HEROIS
+// ═══════════════════════════════════════════════════════════
+const HERO_DEF = {
+    [OWNER.PLAYER]: {
+        name:'Rei Humano', icon:'👑', hp:200, atk:18, def:15, spd:1.5, range:1.5,
+        auraRange:4, auraBonus:0.2,
+        ability:'Inspiracao Real', abilityDesc:'Tropas proximas +20% ataque/defesa',
+        abilityCooldown:30, abilityDuration:10
+    },
+    [OWNER.ENEMY_A]: {
+        name:'Chefe Barbaro', icon:'🪓', hp:250, atk:22, def:10, spd:1.8, range:1.3,
+        auraRange:3, auraBonus:0.15,
+        ability:'Furia de Guerra', abilityDesc:'Tropas +30% velocidade de ataque',
+        abilityCooldown:25, abilityDuration:8
+    },
+    [OWNER.ENEMY_B]: {
+        name:'Arquimago', icon:'🧙', hp:120, atk:30, def:8, spd:1.0, range:6,
+        auraRange:5, auraBonus:0.1,
+        ability:'Explosao Arcana', abilityDesc:'Dano em area aos inimigos proximos',
+        abilityCooldown:20, abilityDuration:3
+    },
+    [OWNER.VAMPIRES]: {
+        name:'Lorde Vampiro', icon:'🧛', hp:180, atk:25, def:12, spd:1.6, range:1.5,
+        auraRange:5, auraBonus:0.2, lifeSteal:0.35,
+        ability:'Drenar Vida', abilityDesc:'Rouba vida de todos inimigos em area',
+        abilityCooldown:22, abilityDuration:5
+    }
+};
+
+// ═══════════════════════════════════════════════════════════
+// SISTEMA DE ESTACOES
+// ═══════════════════════════════════════════════════════════
+const SEASONS = {
+    SPRING: {name:'Primavera', icon:'🌸', duration:240, foodMult:1.1, woodMult:1.0, goldMult:1.0, color:'rgba(100,200,100,0.04)'},
+    SUMMER: {name:'Verao',     icon:'☀️', duration:240, foodMult:1.0, woodMult:1.1, goldMult:1.0, color:'rgba(200,180,50,0.04)'},
+    AUTUMN: {name:'Outono',    icon:'🍂', duration:240, foodMult:0.9, woodMult:1.2, goldMult:1.1, color:'rgba(180,120,40,0.04)'},
+    WINTER: {name:'Inverno',   icon:'❄️', duration:240, foodMult:0.6, woodMult:0.8, goldMult:0.9, color:'rgba(150,180,220,0.06)'}
+};
+const SEASON_ORDER = ['SPRING','SUMMER','AUTUMN','WINTER'];
+
+// ═══════════════════════════════════════════════════════════
+// ARVORE DE TECNOLOGIA
+// ═══════════════════════════════════════════════════════════
+const TECH_TREE = {
+    better_axes:    {name:'Machados Melhores',   icon:'🪓', cost:{gold:80,wood:40},  effect:'woodMult', value:1.25, desc:'Lenhadores produzem +25%', req:null},
+    better_bows:    {name:'Arcos Melhores',      icon:'🏹', cost:{gold:100,wood:60}, effect:'archerAtk', value:1.2, desc:'Arqueiros +20% ataque', req:null},
+    reinforced_walls:{name:'Muros Reforcados',   icon:'🏰', cost:{gold:120,stone:80},effect:'wallDef', value:1.5, desc:'Muros +50% defesa', req:null},
+    advanced_farming:{name:'Agricultura Avancada',icon:'🌾', cost:{gold:90,food:30},  effect:'foodMult', value:1.3, desc:'Fazendas produzem +30%', req:null},
+    steel_swords:   {name:'Espadas de Aco',      icon:'⚔️', cost:{gold:150,stone:50},effect:'meleeAtk', value:1.2, desc:'Espadachins +20% ataque', req:'better_axes'},
+    war_tactics:    {name:'Taticas de Guerra',   icon:'📜', cost:{gold:200,gold:100}, effect:'armySpd', value:1.15, desc:'Exercitos +15% velocidade', req:'better_bows'},
+    stone_masonry:  {name:'Alvenaria',           icon:'🧱', cost:{gold:100,stone:60},effect:'buildHp', value:1.3, desc:'Construcoes +30% vida', req:'reinforced_walls'},
+    kings_guard:    {name:'Guarda Real',         icon:'👑', cost:{gold:250,food:80},  effect:'kingAura', value:1.5, desc:'Aura do Rei +50% alcance', req:'war_tactics'}
+};
+
+// ═══════════════════════════════════════════════════════════
+// CRIATURAS LENDARIAS
+// ═══════════════════════════════════════════════════════════
+const LEGENDARY_DEF = {
+    dragon:   {name:'Dragao',         icon:'🐉', hp:500, atk:40, def:20, spd:1.0, range:3, reward:{gold:200,food:50}, color:'#FF4422'},
+    wolf_giant:{name:'Lobo Gigante',  icon:'🐺', hp:300, atk:30, def:15, spd:2.0, range:1.5, reward:{gold:120,food:80}, color:'#666688'},
+    undead:   {name:'Morto-vivo',     icon:'🧟', hp:200, atk:20, def:25, spd:0.8, range:1.3, reward:{gold:100,food:0}, color:'#44AA44'}
+};
+
+// ═══════════════════════════════════════════════════════════
+// EVENTOS DINAMICOS
+// ═══════════════════════════════════════════════════════════
+const DYNAMIC_EVENTS = [
+    {id:'plague',     name:'Praga',             icon:'☠️', chance:0.08, desc:'Uma praga reduz producao de comida por 60s', duration:60},
+    {id:'meteor',     name:'Meteorito',         icon:'☄️', chance:0.05, desc:'Um meteorito cai no mapa! Ganha recursos', duration:0},
+    {id:'rebellion',  name:'Rebeliao',          icon:'⚔️', chance:0.06, desc:'Aldeoes se rebelam e atacam construcoes', duration:30},
+    {id:'gold_rush',  name:'Corrida do Ouro',   icon:'💰', chance:0.08, desc:'Minas produzem o dobro de ouro por 60s', duration:60},
+    {id:'good_harvest',name:'Boa Colheita',     icon:'🌾', chance:0.10, desc:'Fazendas produzem o dobro por 60s', duration:60}
+];
 const GUIDE_ENTRIES=[
     {title:'Como construir', keywords:'construir casa fazenda quartel muro torre serraria pesca build', body:'Aperte B para abrir o menu de construcoes. Use as teclas numericas para escolher uma estrutura e clique no mapa dentro do seu territorio para construir.'},
     {title:'Como recrutar tropas', keywords:'recrutar tropas quartel espadachim arqueiro lanceiro soldado', body:'Construa um Quartel, aperte R e escolha a unidade. Recrutar consome ouro, comida e populacao livre.'},
@@ -214,7 +324,18 @@ const gs = {
     eventTimer: 0,
     animals: [],
     animalSpawnTimer: 0,
-    animalRespawnQueue: []
+    animalRespawnQueue: [],
+    // ─── New Systems ───
+    season: 'SPRING',
+    seasonTimer: 0,
+    techs: {},           // researched technologies {techId: true}
+    showTechMenu: false,
+    legendaryCreatures: [],
+    legendarySpawnTimer: 0,
+    heroes: {},          // {ownerId: heroObj}
+    kingPresenceActive: false,
+    dynamicEvent: null,  // current active event {id, timer, ...}
+    dynamicEventCooldown: 0
 };
 globalThis.__gameState = gs;
 
@@ -252,7 +373,10 @@ const mobileUI = {
     showArmyPanel: false,
     showBattleButtons: false,
     buildGhost: null,  // {type, tileX, tileY} for ghost placement
-    touchButtons: []   // touch-specific UI buttons
+    touchButtons: [],   // touch-specific UI buttons
+    isLandscape: false, // orientation detection
+    safeInsetTop: 0,
+    safeInsetBottom: 0
 };
 
 // Auto-save state
@@ -297,9 +421,14 @@ function getTerritoryCenterWorld(ttx,tty){
     return {x:(ttx*TERR_TILE+TERR_TILE/2)*TILE,y:(tty*TERR_TILE+TERR_TILE/2)*TILE};
 }
 function armyCount(comp){return (comp.SWORDSMAN||0)+(comp.ARCHER||0)+(comp.SPEARMAN||0)}
-function armyPower(comp,posBonus){
+function armyPower(comp,posBonus,owner){
     let total=(comp.SWORDSMAN||0)*1.1+(comp.ARCHER||0)*1.15+(comp.SPEARMAN||0)*1.05;
-    return total*(1+posBonus);
+    let result=total*(1+posBonus);
+    // Apply kingdom trait bonuses
+    if(owner && KINGDOM_TRAITS[owner]){
+        result*=KINGDOM_TRAITS[owner].atkBonus;
+    }
+    return result;
 }
 function mergeArmyComposition(dst,src){
     dst.SWORDSMAN=(dst.SWORDSMAN||0)+(src.SWORDSMAN||0);
@@ -310,15 +439,16 @@ function mergeArmyComposition(dst,src){
 function loadImg(src){
     let img=new Image();img.src=src;return img;
 }
-function drawCharSheet(sheets,animState,dir,animFrame,dx,dy,size,rowMap){
+function drawCharSheet(sheets,animState,dir,animFrame,dx,dy,size,rowMap,fw,fh){
     if(!sheets)return false;
     let img=sheets[animState]||sheets.idle;
     if(!img||!img.complete||!img.naturalWidth)return false;
-    let mf=Math.max(1,Math.floor(img.naturalWidth/CHAR_FW));
+    let frameW=fw||CHAR_FW, frameH=fh||CHAR_FH;
+    let mf=Math.max(1,Math.floor(img.naturalWidth/frameW));
     let f=animFrame%mf;
     let rows=rowMap||DIR_TO_ROW;
     let row=rows[dir]||0;
-    ctx.drawImage(img,f*CHAR_FW,row*CHAR_FH,CHAR_FW,CHAR_FH,dx,dy,size,size);
+    ctx.drawImage(img,f*frameW,row*frameH,frameW,frameH,dx,dy,size,size);
     return true;
 }
 function getGuideMatches(query){
@@ -1153,6 +1283,14 @@ class King extends Entity{
     draw(){
         let sx=this.x-gs.camera.x,sy=this.y-gs.camera.y;
         let sz=TILE+6;
+        // King's Presence aura
+        let heroDef=HERO_DEF[OWNER.PLAYER];
+        let auraRange=heroDef.auraRange*TILE*getTechBonus('kingAura');
+        let auraAlpha=0.08+Math.sin(gs.gameTime*2)*0.03;
+        ctx.fillStyle='rgba(255,215,0,'+auraAlpha.toFixed(3)+')';
+        ctx.beginPath();ctx.arc(sx,sy,auraRange,0,Math.PI*2);ctx.fill();
+        ctx.strokeStyle='rgba(255,215,0,0.15)';ctx.lineWidth=1;
+        ctx.beginPath();ctx.arc(sx,sy,auraRange,0,Math.PI*2);ctx.stroke();
         if(this.flashTimer>0){ctx.globalAlpha=0.5+(Math.sin(gs.gameTime*40)*0.5)}
         if(!drawCharSheet(SC.char_lvl3,this.animState,this.dir,this.animFrame,sx-sz/2,sy-sz/2,sz)){
             ctx.drawImage(SC.king[this.frame],sx-TILE/2,sy-TILE/2);
@@ -1211,7 +1349,13 @@ class PlayerUnit extends Entity{
             if(d<=this.range*TILE){
                 this.state='attacking';
                 if(this.attackTimer<=0){
-                    let dmg=Math.max(1,Math.floor((this.atk-Math.floor(this.targetEnemy.def*0.3))*getCombatMultiplier()));
+                    // Apply King's Presence bonus
+                    let kpBonus=getKingPresenceBonus(this);
+                    // Apply tech bonuses
+                    let techMult=1.0;
+                    if(this.type==='ARCHER') techMult*=getTechBonus('archerAtk');
+                    if(this.type==='SWORDSMAN'||this.type==='SPEARMAN') techMult*=getTechBonus('meleeAtk');
+                    let dmg=Math.max(1,Math.floor((this.atk*kpBonus.atk*techMult-Math.floor(this.targetEnemy.def*0.3))*getCombatMultiplier()));
                     this.targetEnemy.takeDamage(dmg);
                     this.attackTimer=0.8;
                     if(this.type==='ARCHER'){
@@ -1495,7 +1639,7 @@ class Animal{
         let animKey=this.alive?this.animState:(this.deathTimer>0?'death':'idle');
         if(this.flashTimer>0)ctx.globalAlpha=0.5+(Math.sin(gs.gameTime*40)*0.5);
         // Draw using spritesheet or fallback colored rect
-        if(!drawCharSheet(sheet,animKey,this.dir,this.animFrame,sx-sz/2,sy-sz/2,sz)){
+        if(!drawCharSheet(sheet,animKey,this.dir,this.animFrame,sx-sz/2,sy-sz/2,sz,null,ANIMAL_FW,ANIMAL_FH)){
             let def=ANIM_DEF[this.type];
             ctx.fillStyle=this.alive?def.color:'#555';
             if(this.flashTimer>0)ctx.fillStyle='#FFF';
@@ -1673,16 +1817,15 @@ class Hunter extends Entity{
         // Try custom hunter sprite first, fallback to archer sheet
         if(this.flashTimer>0)ctx.globalAlpha=0.5+(Math.sin(gs.gameTime*40)*0.5);
         let drawn=false;
-        // Attempt custom spritesheet
+        // Attempt custom spritesheet with correct frame size (256x256)
         if(SC.cacador&&SC.cacador.complete&&SC.cacador.naturalWidth){
-            let fw=SC.cacador.naturalWidth,fh=SC.cacador.naturalHeight;
-            let fcols=Math.max(1,Math.floor(fw/CHAR_FW));
-            let frows=Math.max(1,Math.floor(fh/CHAR_FH));
+            let fcols=Math.max(1,Math.floor(SC.cacador.naturalWidth/HUNTER_FW));
+            let frows=Math.max(1,Math.floor(SC.cacador.naturalHeight/HUNTER_FH));
             if(fcols>1||frows>1){
                 let f=this.animFrame%fcols;
                 let row=frows>1?(DIR_TO_ROW[this.dir]||0):0;
-                if(row<frows) ctx.drawImage(SC.cacador,f*CHAR_FW,row*CHAR_FH,CHAR_FW,CHAR_FH,sx-sz/2,sy-sz/2,sz,sz);
-                else ctx.drawImage(SC.cacador,f*CHAR_FW,0,CHAR_FW,CHAR_FH,sx-sz/2,sy-sz/2,sz,sz);
+                if(row>=frows) row=0;
+                ctx.drawImage(SC.cacador,f*HUNTER_FW,row*HUNTER_FH,HUNTER_FW,HUNTER_FH,sx-sz/2,sy-sz/2,sz,sz);
                 drawn=true;
             } else {
                 // Single image - draw directly
@@ -2059,8 +2202,225 @@ function updateRandomEvents(dt){
 }
 
 // ═══════════════════════════════════════════════════════════
-// CONSTRUÇÕES VAMPIRAS NO MAPA
+// SISTEMA DE ESTACOES (Seasons)
 // ═══════════════════════════════════════════════════════════
+function updateSeasons(dt){
+    gs.seasonTimer+=dt;
+    let season=SEASONS[gs.season];
+    if(gs.seasonTimer>=season.duration){
+        gs.seasonTimer=0;
+        let idx=SEASON_ORDER.indexOf(gs.season);
+        gs.season=SEASON_ORDER[(idx+1)%SEASON_ORDER.length];
+        let newS=SEASONS[gs.season];
+        addMessage('[~] Estacao: '+newS.icon+' '+newS.name);
+        if(gs.season==='WINTER') addMessage('[!] Inverno: comida diminui, caca essencial!');
+    }
+}
+function getSeasonMult(resource){
+    let s=SEASONS[gs.season];
+    if(resource==='food') return s.foodMult;
+    if(resource==='wood') return s.woodMult;
+    if(resource==='gold') return s.goldMult;
+    return 1.0;
+}
+
+// ═══════════════════════════════════════════════════════════
+// ARVORE DE TECNOLOGIA
+// ═══════════════════════════════════════════════════════════
+function canResearch(techId){
+    if(gs.techs[techId]) return false;
+    let tech=TECH_TREE[techId];
+    if(!tech) return false;
+    if(tech.req && !gs.techs[tech.req]) return false;
+    for(let r in tech.cost){
+        if((gs.resources[r]||0)<tech.cost[r]) return false;
+    }
+    return true;
+}
+function researchTech(techId){
+    if(!canResearch(techId)) return false;
+    let tech=TECH_TREE[techId];
+    for(let r in tech.cost) gs.resources[r]-=tech.cost[r];
+    gs.techs[techId]=true;
+    addMessage('[+] Tecnologia pesquisada: '+tech.icon+' '+tech.name);
+    return true;
+}
+function getTechBonus(effect){
+    let mult=1.0;
+    for(let id in gs.techs){
+        if(!gs.techs[id]) continue;
+        let t=TECH_TREE[id];
+        if(t && t.effect===effect) mult*=t.value;
+    }
+    return mult;
+}
+
+// ═══════════════════════════════════════════════════════════
+// CRIATURAS LENDARIAS
+// ═══════════════════════════════════════════════════════════
+function spawnLegendaryCreature(){
+    let types=Object.keys(LEGENDARY_DEF);
+    let type=types[randInt(0,types.length-1)];
+    let def=LEGENDARY_DEF[type];
+    let fx,fy,attempts=0;
+    do{
+        fx=randInt(10,MAP_W-10); fy=randInt(10,MAP_H-10);
+        attempts++;
+    }while(attempts<50 && (gs.map[fy][fx]===T.WATER||gs.map[fy][fx]===T.MOUNTAIN||
+           dist(fx*TILE,fy*TILE,gs.king?gs.king.x:0,gs.king?gs.king.y:0)<TILE*15));
+    let creature={
+        type:type, x:fx*TILE, y:fy*TILE, hp:def.hp, maxHp:def.hp,
+        atk:def.atk, def:def.def, spd:def.spd, range:def.range,
+        alive:true, dir:0, animFrame:0, animTimer:0, flashTimer:0,
+        wanderTarget:null, wanderTimer:0
+    };
+    gs.legendaryCreatures.push(creature);
+    addMessage('[!!] '+def.icon+' '+def.name+' apareceu no mapa!');
+}
+function updateLegendaryCreatures(dt){
+    gs.legendarySpawnTimer+=dt;
+    // Spawn a legendary creature every 5 minutes, max 3 on map
+    if(gs.legendarySpawnTimer>=300 && gs.legendaryCreatures.length<3){
+        gs.legendarySpawnTimer=0;
+        spawnLegendaryCreature();
+    }
+    for(let i=gs.legendaryCreatures.length-1;i>=0;i--){
+        let c=gs.legendaryCreatures[i];
+        if(!c.alive){
+            let def=LEGENDARY_DEF[c.type];
+            gs.resources.gold+=def.reward.gold;
+            gs.resources.food+=def.reward.food;
+            addParticle(c.x,c.y,'+'+def.reward.gold+'g','#FFD700');
+            addMessage('[+] '+def.icon+' '+def.name+' derrotado! +'+def.reward.gold+' ouro +'+def.reward.food+' comida');
+            gs.legendaryCreatures.splice(i,1);
+            continue;
+        }
+        // Wandering AI
+        c.animTimer+=dt;
+        if(c.animTimer>0.15){c.animTimer=0;c.animFrame++;}
+        if(c.flashTimer>0) c.flashTimer-=dt;
+        c.wanderTimer-=dt;
+        if(c.wanderTimer<=0){
+            c.wanderTimer=rand(3,8);
+            let angle=Math.random()*Math.PI*2;
+            let r=rand(60,200);
+            c.wanderTarget={x:c.x+Math.cos(angle)*r, y:c.y+Math.sin(angle)*r};
+        }
+        if(c.wanderTarget){
+            let dx=c.wanderTarget.x-c.x, dy=c.wanderTarget.y-c.y, d=Math.sqrt(dx*dx+dy*dy);
+            if(d>8){
+                c.x+=(dx/d)*c.spd*TILE*dt*0.3;
+                c.y+=(dy/d)*c.spd*TILE*dt*0.3;
+                if(Math.abs(dx)>Math.abs(dy)) c.dir=dx>0?3:2; else c.dir=dy>0?0:1;
+            } else c.wanderTarget=null;
+        }
+        // Attack nearby player units
+        let nearestUnit=null, nearDist=c.range*TILE*2;
+        for(let u of gs.units){
+            if(!u.alive) continue;
+            let d=dist(c.x,c.y,u.x,u.y);
+            if(d<nearDist){nearDist=d; nearestUnit=u;}
+        }
+        if(gs.king&&gs.king.alive){
+            let d=dist(c.x,c.y,gs.king.x,gs.king.y);
+            if(d<nearDist){nearDist=d; nearestUnit=gs.king;}
+        }
+        if(nearestUnit && nearDist<c.range*TILE){
+            let dmg=Math.max(1,c.atk-(nearestUnit.def||0));
+            nearestUnit.hp-=dmg;
+            nearestUnit.flashTimer=0.1;
+            if(nearestUnit.hp<=0) nearestUnit.alive=false;
+        }
+    }
+}
+function renderLegendaryCreatures(){
+    for(let c of gs.legendaryCreatures){
+        if(!c.alive) continue;
+        let sx=c.x-gs.camera.x, sy=c.y-gs.camera.y;
+        let def=LEGENDARY_DEF[c.type];
+        let sz=TILE*1.5;
+        if(c.flashTimer>0) ctx.globalAlpha=0.5+(Math.sin(gs.gameTime*40)*0.5);
+        ctx.fillStyle=def.color;
+        ctx.beginPath();
+        ctx.arc(sx,sy,sz/2,0,Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle='#FFF';ctx.font='bold 16px monospace';ctx.textAlign='center';
+        ctx.fillText(def.icon,sx,sy+5);
+        ctx.textAlign='left';
+        ctx.globalAlpha=1;
+        // HP bar
+        drawHP(sx-sz/2,sy-sz/2-10,sz,5,c.hp,c.maxHp);
+        // Name label
+        ctx.fillStyle='#FF8';ctx.font='bold 9px monospace';ctx.textAlign='center';
+        ctx.fillText(def.name,sx,sy-sz/2-14);ctx.textAlign='left';
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PRESENCA DO REI (King's Presence)
+// ═══════════════════════════════════════════════════════════
+function getKingPresenceBonus(unit){
+    if(!gs.king||!gs.king.alive) return {atk:1.0,def:1.0,morale:false};
+    let heroDef=HERO_DEF[OWNER.PLAYER];
+    let auraRange=heroDef.auraRange*TILE*getTechBonus('kingAura');
+    let d=dist(unit.x,unit.y,gs.king.x,gs.king.y);
+    if(d<=auraRange){
+        return {atk:1+heroDef.auraBonus, def:1+heroDef.auraBonus, morale:true};
+    }
+    return {atk:1.0,def:1.0,morale:false};
+}
+
+// ═══════════════════════════════════════════════════════════
+// EVENTOS DINAMICOS
+// ═══════════════════════════════════════════════════════════
+function updateDynamicEvents(dt){
+    // Active event countdown
+    if(gs.dynamicEvent){
+        gs.dynamicEvent.timer-=dt;
+        if(gs.dynamicEvent.timer<=0){
+            addMessage('[~] Evento "'+gs.dynamicEvent.name+'" terminou.');
+            gs.dynamicEvent=null;
+        }
+    }
+    // Cooldown between events
+    gs.dynamicEventCooldown-=dt;
+    if(gs.dynamicEventCooldown>0) return;
+    if(gs.dynamicEvent) return;
+    // Check for new event (low chance per tick)
+    if(Math.random()>0.0005*dt*60) return;
+    gs.dynamicEventCooldown=120; // min 2 min between events
+    let available=DYNAMIC_EVENTS.filter(e=>Math.random()<e.chance);
+    if(available.length===0) return;
+    let evt=available[randInt(0,available.length-1)];
+    addMessage('[!!] '+evt.icon+' Evento: '+evt.name+' - '+evt.desc);
+    gs.screenShake=0.3;
+    if(evt.duration>0){
+        gs.dynamicEvent={id:evt.id, name:evt.name, icon:evt.icon, timer:evt.duration};
+    }
+    // Instant effects
+    if(evt.id==='meteor'){
+        gs.resources.gold+=randInt(50,150);
+        gs.resources.stone+=randInt(30,80);
+        addMessage('[+] Meteorito trouxe +ouro e +pedra!');
+    }
+    if(evt.id==='rebellion'){
+        // Spawn a few rebel enemies near player buildings
+        let pBuildings=gs.buildings.filter(b=>b.hp>0);
+        if(pBuildings.length>0){
+            let b=pBuildings[randInt(0,pBuildings.length-1)];
+            for(let i=0;i<3;i++){
+                gs.enemies.push(new EnemyUnit(b.x*TILE+rand(-60,60),b.y*TILE+rand(-60,60),'bandit'));
+            }
+        }
+    }
+}
+function getDynamicEventMult(resource){
+    if(!gs.dynamicEvent) return 1.0;
+    if(gs.dynamicEvent.id==='plague' && resource==='food') return 0.5;
+    if(gs.dynamicEvent.id==='gold_rush' && resource==='gold') return 2.0;
+    if(gs.dynamicEvent.id==='good_harvest' && resource==='food') return 2.0;
+    return 1.0;
+}
 function initVampireStructures(){
     // Localizar centro do território vampiro (nordeste)
     let vTerr=getOwnerTerritories(OWNER.VAMPIRES);
@@ -2147,7 +2507,7 @@ function conquerTerritory(army,territory){
     let buildingsIn=gs.buildings.filter(b=>b.hp>0&&tileToTerr(b.x,b.y).x===territory.x&&tileToTerr(b.x,b.y).y===territory.y);
     defenderPower+=buildingsIn.length*0.25;
     let posBonus=gs.map[territory.y*TERR_TILE]?.[territory.x*TERR_TILE]===T.FOREST?0.12:0.05;
-    let atkPower=armyPower(army.comp,posBonus);
+    let atkPower=armyPower(army.comp,posBonus,army.owner);
     if(army.owner===OWNER.PLAYER) atkPower*=1+(gs.upgrades.forge*0.08);
     // Vampire night bonus for army conquest
     if(army.owner===OWNER.VAMPIRES&&gs.isNight) atkPower*=1.3;
@@ -2238,8 +2598,11 @@ function updateKingdomAI(dt){
     for(let k of gs.kingdoms){
         k.expandCd-=1.5;k.attackCd-=1.5;
         let isVamp=k.owner===OWNER.VAMPIRES;
-        // Vampire kingdoms are more aggressive at night
+        let traits=KINGDOM_TRAITS[k.owner]||{};
+        // Vampire kingdoms are more aggressive at night; Barbarians always aggressive
         let aggroMod=isVamp?(gs.isNight?0.6:1.4):1;
+        // Barbarian trait: faster spawn rate
+        if(traits.spawnRate) aggroMod/=traits.spawnRate;
 
         if(k.expandCd<=0){
             let owned=getOwnerTerritories(k.owner);
@@ -2252,7 +2615,6 @@ function updateKingdomAI(dt){
                     if(nx>=0&&nx<TERR_W&&ny>=0&&ny<TERR_H){
                         let t=gs.territories[terrIndex(nx,ny)];
                         if(t.owner!==k.owner){
-                            // Only expand into neutral or war targets
                             if(t.owner===OWNER.NEUTRAL||isAtWar(k.owner,t.owner))
                                 candidates.push(t);
                         }
@@ -2260,9 +2622,17 @@ function updateKingdomAI(dt){
                 }
                 if(candidates.length>0){
                     let to=candidates[randInt(0,candidates.length-1)];
-                    let comp=isVamp?
-                        {SWORDSMAN:randInt(4,8),ARCHER:randInt(1,3),SPEARMAN:randInt(2,5)}:
-                        {SWORDSMAN:randInt(3,7),ARCHER:randInt(2,5),SPEARMAN:randInt(2,5)};
+                    // Barbarians: more soldiers, less defense; Mages: fewer but stronger; Vampires: unique mix
+                    let comp;
+                    if(traits.style==='agressivo'){
+                        comp={SWORDSMAN:randInt(6,12),ARCHER:randInt(1,3),SPEARMAN:randInt(3,6)};
+                    } else if(traits.style==='magico'){
+                        comp={SWORDSMAN:randInt(2,4),ARCHER:randInt(3,6),SPEARMAN:randInt(1,3)};
+                    } else if(isVamp){
+                        comp={SWORDSMAN:randInt(4,8),ARCHER:randInt(1,3),SPEARMAN:randInt(2,5)};
+                    } else {
+                        comp={SWORDSMAN:randInt(3,7),ARCHER:randInt(2,5),SPEARMAN:randInt(2,5)};
+                    }
                     spawnArmy(k.owner,comp,from,to);
                 }
             }
@@ -2270,7 +2640,6 @@ function updateKingdomAI(dt){
         }
 
         if(k.attackCd<=0){
-            // Find war targets
             let warTargets=[];
             let allOwners=[OWNER.PLAYER,OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
             for(let o of allOwners){
@@ -2285,9 +2654,16 @@ function updateKingdomAI(dt){
                 let target=warTargets[randInt(0,warTargets.length-1)];
                 let from=owned[randInt(0,owned.length-1)];
                 let to=target.terrs[randInt(0,target.terrs.length-1)];
-                let comp=isVamp?
-                    {SWORDSMAN:randInt(6,12),ARCHER:randInt(2,5),SPEARMAN:randInt(4,8)}:
-                    {SWORDSMAN:randInt(5,10),ARCHER:randInt(4,8),SPEARMAN:randInt(4,8)};
+                let comp;
+                if(traits.style==='agressivo'){
+                    comp={SWORDSMAN:randInt(8,15),ARCHER:randInt(2,5),SPEARMAN:randInt(5,10)};
+                } else if(traits.style==='magico'){
+                    comp={SWORDSMAN:randInt(3,6),ARCHER:randInt(5,10),SPEARMAN:randInt(2,4)};
+                } else if(isVamp){
+                    comp={SWORDSMAN:randInt(6,12),ARCHER:randInt(2,5),SPEARMAN:randInt(4,8)};
+                } else {
+                    comp={SWORDSMAN:randInt(5,10),ARCHER:randInt(4,8),SPEARMAN:randInt(4,8)};
+                }
                 spawnArmy(k.owner,comp,from,to);
                 if(target.owner===OWNER.PLAYER)
                     addMessage('[!] '+k.name+' enviou um exército de invasão!');
@@ -2427,13 +2803,25 @@ function getProductionRates(){
     let rates={gold:0,food:0,wood:0,stone:0};
     for(let b of gs.buildings){
         if(b.hp<=0||!b.def.produces)continue;
-        for(let res in b.def.produces)rates[res]+=b.def.produces[res]*mult*wRatio;
+        for(let res in b.def.produces){
+            let base=b.def.produces[res]*mult*wRatio;
+            // Apply tech bonuses
+            if(res==='wood') base*=getTechBonus('woodMult');
+            if(res==='food') base*=getTechBonus('foodMult');
+            // Apply season multiplier
+            base*=getSeasonMult(res);
+            // Apply dynamic event multiplier
+            base*=getDynamicEventMult(res);
+            rates[res]+=base;
+        }
     }
     rates.gold=Math.round(rates.gold*12);rates.food=Math.round(rates.food*12);rates.wood=Math.round(rates.wood*12);rates.stone=Math.round(rates.stone*12);
     let pTerr=getOwnerTerritories(OWNER.PLAYER).length;
-    rates.gold+=Math.round(pTerr*1.2*10);
-    rates.food+=Math.round(pTerr*0.8*10);
-    rates.wood+=Math.round(pTerr*0.7*10);
+    // Kingdom trait: economy bonus
+    let econBonus=KINGDOM_TRAITS[OWNER.PLAYER].econBonus;
+    rates.gold+=Math.round(pTerr*1.2*10*econBonus);
+    rates.food+=Math.round(pTerr*0.8*10*econBonus);
+    rates.wood+=Math.round(pTerr*0.7*10*econBonus);
     rates.food-=Math.ceil(gs.population*0.3)*12;
     return rates;
 }
@@ -2461,7 +2849,10 @@ function saveGame(){
             diplomacy:gs.diplomacy,
             dayNightTimer:gs.dayNightTimer,
             isNight:gs.isNight,
-            eventTimer:gs.eventTimer
+            eventTimer:gs.eventTimer,
+            season:gs.season,
+            seasonTimer:gs.seasonTimer,
+            techs:gs.techs
         };
         localStorage.setItem('medievalKingdom_save',JSON.stringify(data));
         addMessage('[+] Jogo salvo com sucesso!');
@@ -2493,6 +2884,9 @@ function loadGame(){
         gs.dayNightTimer=data.dayNightTimer||0;
         gs.isNight=data.isNight||false;
         gs.eventTimer=data.eventTimer||0;
+        gs.season=data.season||'SPRING';
+        gs.seasonTimer=data.seasonTimer||0;
+        gs.techs=data.techs||{};
         if(Object.keys(gs.diplomacy).length===0) initDiplomacy();
         gs.enemies=[];gs.particles=[];gs.projectiles=[];gs.explosions=[];gs.selectedUnits=[];
         gs.selectedBuilding=null;gs.selectedBuildings=[];gs.moveMode=false;gs.movingBuilding=null;gs.moveSelectionMode=false;
@@ -2748,13 +3142,14 @@ window.addEventListener('keydown',(e)=>{
     if(e.code==='KeyB'){gs.showBuildMenu=!gs.showBuildMenu;gs.showRecruitMenu=false;gs.showBuildingMenu=false;gs.selectedBuilding=null;if(!gs.showBuildMenu)gs.buildMode=null}
     if(e.code==='KeyR'){gs.showRecruitMenu=!gs.showRecruitMenu;gs.showBuildMenu=false;gs.showBuildingMenu=false;gs.selectedBuilding=null;gs.buildMode=null}
     if(e.code==='Escape'){
-        gs.buildMode=null;gs.showBuildMenu=false;gs.showRecruitMenu=false;gs.showDiplomacy=false;
+        gs.buildMode=null;gs.showBuildMenu=false;gs.showRecruitMenu=false;gs.showDiplomacy=false;gs.showTechMenu=false;
         gs.selectedUnits.forEach(u=>u.selected=false);gs.selectedUnits=[];
         gs.selectedBuilding=null;gs.selectedBuildings=[];gs.showBuildingMenu=false;
         gs.moveMode=false;gs.movingBuilding=null;gs.moveSelectionMode=false;gs.movingBuildings=[];
         gs.selectedArmies=[];gs.dragBuilding=null;gs.isDragging=false;
     }
     if(e.code==='KeyP') gs.paused=!gs.paused;
+    if(e.code==='KeyT'){gs.showTechMenu=!gs.showTechMenu;gs.showBuildMenu=false;gs.showRecruitMenu=false;return}
     if(e.code==='KeyU'){upgradeForge();return}
     if(e.code==='KeyJ'){upgradeMasonry();return}
     if(e.code==='KeyF'&&gs.phase==='gameover'){location.reload()}
@@ -3531,8 +3926,10 @@ function renderUI(){
     ctx.textAlign='left';
 
     if(isMobile){
-        // ─── Mobile Compact Resource Bar ───
-        let iconS=14,fSize=11,spacing=Math.min(W/5,80);
+        // ─── Mobile Compact Resource Bar (adapts to landscape/portrait) ───
+        let isLand=mobileUI.isLandscape;
+        let iconS=isLand?16:14, fSize=isLand?12:11;
+        let spacing=isLand?Math.min(W/7,90):Math.min(W/5,80);
         ctx.font='bold '+fSize+'px monospace';
         let rx=6;
         // Pop
@@ -3559,6 +3956,15 @@ function renderUI(){
         // Day/Night indicator
         ctx.fillStyle=gs.isNight?'#8888CC':'#FFDD44';
         drawIC(gs.isNight?'moon':'sun',rx,4,iconS);
+        // Season indicator (below day/night on mobile)
+        let seasonInfo=SEASONS[gs.season];
+        ctx.font=(fSize-2)+'px monospace';ctx.fillStyle='#AAA';
+        ctx.fillText(seasonInfo.icon,rx+iconS+3,18);
+        // Active event indicator
+        if(gs.dynamicEvent){
+            ctx.fillStyle='#FA0';ctx.font='bold '+(fSize-1)+'px monospace';
+            ctx.fillText(gs.dynamicEvent.icon,rx+iconS+3,32);
+        }
         // Hunger alert on mobile
         if(gs.hunger>=1){
             let blink=Math.sin(gs.gameTime*4)>0;
@@ -3622,13 +4028,22 @@ function renderUI(){
         ctx.fillStyle=gs.isNight?'#8888CC':'#FFDD44';
         drawIC(gs.isNight?'moon':'sun',rx,3,16);ctx.fillText(gs.isNight?'Noite':'Dia',rx+20,18);
         ctx.font='10px monospace';ctx.fillStyle='#777';
-        ctx.fillText('[N] Diplomacia',rx+20,34);
+        let seasonInfo=SEASONS[gs.season];
+        ctx.fillText(seasonInfo.icon+' '+seasonInfo.name,rx+20,34);
         rx+=115;
+        // Active event indicator
+        if(gs.dynamicEvent){
+            ctx.font='bold 13px monospace';ctx.fillStyle='#FA0';
+            ctx.fillText(gs.dynamicEvent.icon+' '+gs.dynamicEvent.name,rx,18);
+            ctx.font='10px monospace';ctx.fillStyle='#AA8';
+            ctx.fillText(Math.ceil(gs.dynamicEvent.timer)+'s',rx,34);
+            rx+=110;
+        }
         ctx.font='bold 13px monospace';ctx.fillStyle='#BBB';
         drawIC('zoom',rx,3,16);ctx.fillText('x'+gs.zoom.toFixed(1),rx+20,18);
         ctx.font='10px monospace';ctx.fillStyle='#777';
-        ctx.fillText('[O] Livro',rx+20,34);
-        rx+=85;
+        ctx.fillText('[T] Tech [N] Diplo [O] Livro',rx+20,34);
+        rx+=200;
         // Alerta de fome
         if(gs.hunger>=1){
             ctx.font='bold 14px monospace';
@@ -3672,7 +4087,7 @@ function renderUI(){
         }
     } else {
         ctx.font='11px monospace';ctx.fillStyle='#666';
-        ctx.fillText(' [B] Construir  [R] Recrutar  [U] Forjar  [J] Muros  [N] Diplomacia  [O] Livro  Scroll Zoom',15,btmY+18);
+        ctx.fillText(' [B] Construir  [R] Recrutar  [T] Tech  [U] Forjar  [J] Muros  [N] Diplomacia  [O] Livro  Scroll Zoom',15,btmY+18);
 
         if(gs.isDragging&&gs.dragBuilding){
             ctx.fillStyle='#0CF';ctx.font='13px monospace';
@@ -3993,6 +4408,55 @@ function renderUI(){
         ctx.textAlign='left';
     }
 
+    // ─── Painel de Tecnologia ───
+    if(gs.showTechMenu){
+        let tw2=Math.min(620,W-40),th=Math.min(520,H-80),tx2=(W-tw2)/2,ty2=(H-th)/2;
+        ctx.fillStyle='rgba(8,8,18,0.95)';ctx.fillRect(tx2,ty2,tw2,th);
+        ctx.strokeStyle='#88AAFF';ctx.lineWidth=3;ctx.strokeRect(tx2,ty2,tw2,th);
+        ctx.fillStyle='#88CCFF';ctx.font='bold 20px monospace';ctx.textAlign='left';
+        ctx.fillText('⚗️ Arvore de Tecnologia',tx2+18,ty2+28);
+        ctx.font='10px monospace';ctx.fillStyle='#888';
+        ctx.fillText('[T] ou [ESC] para fechar',tx2+18,ty2+44);
+
+        let techIds=Object.keys(TECH_TREE);
+        let ty3=ty2+60;
+        let colW=Math.floor((tw2-40)/2);
+        for(let i=0;i<techIds.length;i++){
+            let tid=techIds[i], tech=TECH_TREE[tid];
+            let col=i%2, row=Math.floor(i/2);
+            let bx=tx2+15+col*(colW+10), by=ty3+row*54;
+            let researched=!!gs.techs[tid];
+            let available=canResearch(tid);
+            // Background
+            ctx.fillStyle=researched?'rgba(40,80,40,0.8)':available?'rgba(40,40,80,0.8)':'rgba(30,30,30,0.6)';
+            ctx.fillRect(bx,by,colW,48);
+            ctx.strokeStyle=researched?'#4F4':available?'#88F':'#444';
+            ctx.lineWidth=2;ctx.strokeRect(bx,by,colW,48);
+            // Icon + name
+            ctx.fillStyle=researched?'#8F8':available?'#CCF':'#666';
+            ctx.font='bold 12px monospace';
+            ctx.fillText(tech.icon+' '+tech.name,bx+8,by+18);
+            // Cost/status
+            ctx.font='10px monospace';
+            if(researched){
+                ctx.fillStyle='#4F4';ctx.fillText('✓ Pesquisado',bx+8,by+34);
+            } else {
+                let costStr='';
+                for(let r in tech.cost) costStr+=(costStr?'  ':'')+r+':'+tech.cost[r];
+                ctx.fillStyle=available?'#AAF':'#666';
+                ctx.fillText(costStr,bx+8,by+34);
+            }
+            // Description on right side
+            ctx.fillStyle='#999';ctx.font='9px monospace';
+            ctx.fillText(tech.desc,bx+8,by+44);
+            // Click button
+            if(available&&!researched){
+                uiButtons.push({x:bx,y:by,w:colW,h:48,fn:()=>{researchTech(tid)}});
+            }
+        }
+        ctx.textAlign='left';
+    }
+
     // ─── Pause ───
     if(gs.paused){
         ctx.fillStyle='rgba(0,0,0,0.6)';ctx.fillRect(0,0,W,H);
@@ -4039,7 +4503,8 @@ function renderUI(){
     // ═══════════════════════════════════════════════════════════
     if(isMobile && gs.phase==='playing'){
         mobileUI.touchButtons=[];
-        let btnSize=48,pad=8,rightX=W-btnSize-pad;
+        let isLand=mobileUI.isLandscape;
+        let btnSize=isLand?40:48, pad=isLand?6:8, rightX=W-btnSize-pad;
 
         // ─── Mobile Build Button (right side) ───
         let buildBtnY=barH+pad+10;
@@ -4102,6 +4567,19 @@ function renderUI(){
         mobileUI.touchButtons.push({x:rightX,y:guideBtnY,w:btnSize,h:btnSize,fn:()=>{
             gs.showGuide=!gs.showGuide;gs.showDiplomacy=false;if(gs.showGuide)gs.guideQuery='';
         }});
+
+        // ─── Mobile Tech Button ───
+        let techBtnY=guideBtnY+btnSize+pad;
+        if(techBtnY+btnSize<btmY-pad){
+            ctx.fillStyle=gs.showTechMenu?'rgba(100,140,255,0.7)':'rgba(30,30,60,0.85)';
+            ctx.fillRect(rightX,techBtnY,btnSize,btnSize);
+            ctx.strokeStyle='#88AAFF';ctx.lineWidth=2;ctx.strokeRect(rightX,techBtnY,btnSize,btnSize);
+            ctx.fillStyle='#88CCFF';ctx.font='bold 20px monospace';ctx.textAlign='center';
+            ctx.fillText('⚗️',rightX+btnSize/2,techBtnY+btnSize/2+6);ctx.textAlign='left';
+            mobileUI.touchButtons.push({x:rightX,y:techBtnY,w:btnSize,h:btnSize,fn:()=>{
+                gs.showTechMenu=!gs.showTechMenu;gs.showBuildMenu=false;gs.showRecruitMenu=false;
+            }});
+        }
 
         // ─── Mobile Build Panel (left side, slide-in) ───
         if(mobileUI.showBuildPanel){
@@ -4475,6 +4953,9 @@ function gameLoop(timestamp){
         updateDayNight(dt);
         updateRandomEvents(dt);
         updateAnimals(dt);
+        updateSeasons(dt);
+        updateLegendaryCreatures(dt);
+        updateDynamicEvents(dt);
 
         // Efeitos
         updateEffects(dt);
@@ -4524,12 +5005,20 @@ function gameLoop(timestamp){
     renderBuildings();
     renderBuildPreview();
     renderEntities();
+    renderLegendaryCreatures();
     renderEffects();
 
     // Night overlay
     let nightA=getNightAlpha();
     if(nightA>0){
         ctx.fillStyle='rgba(10,5,40,'+nightA.toFixed(3)+')';
+        ctx.fillRect(-10/gs.zoom,-10/gs.zoom,(W+20)/gs.zoom,(H+20)/gs.zoom);
+    }
+
+    // Season color overlay
+    let seasonColor=SEASONS[gs.season].color;
+    if(seasonColor){
+        ctx.fillStyle=seasonColor;
         ctx.fillRect(-10/gs.zoom,-10/gs.zoom,(W+20)/gs.zoom,(H+20)/gs.zoom);
     }
 
