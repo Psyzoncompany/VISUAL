@@ -3024,23 +3024,24 @@ function isClickMobileUI(mx, my) {
 function isTouchInMobilePanel(mx, my) {
     if (!isMobile) return false;
     let barH = 52, pad = 6;
+    let btmH = isMobile ? 42 : 50;
     let py = barH + pad;
     if (mobileUI.showBuildPanel) {
         let pw = Math.min(240, W * 0.6);
         let headerH = 42;
-        let maxPH = H - barH - (isMobile ? 36 : 50) - pad * 2 - 16;
+        let maxPH = H - barH - btmH - pad * 2 - 16;
         if (mx >= pad && mx <= pad + pw && my >= py + headerH && my <= py + maxPH) return true;
     }
     if (mobileUI.showRecruitPanel) {
         let pw = Math.min(250, W * 0.65);
         let headerH = 42;
-        let maxPH = H - barH - (isMobile ? 36 : 50) - pad * 2 - 16;
+        let maxPH = H - barH - btmH - pad * 2 - 16;
         if (mx >= pad && mx <= pad + pw && my >= py + headerH && my <= py + maxPH) return true;
     }
     if (mobileUI.showArmyPanel) {
         let pw = Math.min(250, W * 0.65);
         let headerH = 42;
-        let maxPH = H - barH - (isMobile ? 36 : 50) - pad * 2 - 16;
+        let maxPH = H - barH - btmH - pad * 2 - 16;
         if (mx >= pad && mx <= pad + pw && my >= py + headerH && my <= py + maxPH) return true;
     }
     return false;
@@ -3709,7 +3710,7 @@ function renderUI(){
             ctx.fillText(def.name+' - Toque para posicionar',28,btmY+22);
         } else if(gs.selectedUnits.length>0){
             ctx.fillStyle='#0F0';drawIC('star',6,btmY+8,16);
-            ctx.fillText(gs.selectedUnits.length+' unidade(s) | Toque: mover',28,btmY+22);
+            ctx.fillText(gs.selectedUnits.length+' unidade(s) | Toque: mover | Longo: atacar',28,btmY+22);
         } else if(gs.selectedArmies.length>0){
             let total=gs.selectedArmies.reduce((acc,a)=>acc+armyCount(a.comp),0);
             ctx.fillStyle='#65D6FF';drawIC('flag',6,btmY+8,16);
@@ -3975,7 +3976,7 @@ function renderUI(){
         ctx.fillStyle='rgba(8,8,18,0.94)';ctx.fillRect(dx2,dy2,dw,dh);
         ctx.strokeStyle='#CC4444';ctx.lineWidth=3;ctx.strokeRect(dx2,dy2,dw,dh);
         ctx.fillStyle='#FFD700';ctx.font='bold '+(isMobile?'18':'22')+'px monospace';ctx.textAlign='left';
-        drawIC('diplomacy',dx2+18,dy2+14,22);ctx.fillText('Diplomacia',dx2+46,dy2+32);
+        drawIC('diplomacy',dx2+18,dy2+14,22);ctx.fillText(isMobile?'Diplomacia':'Diplomacia dos Reinos',dx2+46,dy2+32);
         // Close button
         let dcX=dx2+dw-40,dcY=dy2+8;
         ctx.fillStyle='rgba(180,50,50,0.8)';ctx.fillRect(dcX,dcY,30,30);
@@ -4241,7 +4242,7 @@ function renderUI(){
             // Scroll indicator
             if(needsScroll){
                 let scrollBarH=Math.max(20,(ph-headerH)*(ph-headerH)/contentH);
-                let scrollBarY=py+headerH+(mobileUI.panelScrollY/mobileUI.panelMaxScroll)*(ph-headerH-scrollBarH);
+                let scrollBarY=py+headerH+(mobileUI.panelScrollY/Math.max(1,mobileUI.panelMaxScroll))*(ph-headerH-scrollBarH);
                 ctx.fillStyle='rgba(255,215,0,0.3)';ctx.fillRect(px2+pw-6,scrollBarY,4,scrollBarH);
             }
         }
@@ -4305,7 +4306,7 @@ function renderUI(){
 
             if(needsScroll){
                 let scrollBarH=Math.max(20,(ph-headerH)*(ph-headerH)/(contentH));
-                let scrollBarY=py+headerH+(mobileUI.panelScrollY/mobileUI.panelMaxScroll)*(ph-headerH-scrollBarH);
+                let scrollBarY=py+headerH+(mobileUI.panelScrollY/Math.max(1,mobileUI.panelMaxScroll))*(ph-headerH-scrollBarH);
                 ctx.fillStyle='rgba(200,70,70,0.3)';ctx.fillRect(px2+pw-6,scrollBarY,4,scrollBarH);
             }
         }
@@ -4458,7 +4459,7 @@ function renderUI(){
             ctx.fillStyle='rgba(80,80,100,0.85)';ctx.fillRect(dsBtnX,dsBtnY,dsBtnW,dsBtnH);
             ctx.strokeStyle='#888';ctx.lineWidth=1;ctx.strokeRect(dsBtnX,dsBtnY,dsBtnW,dsBtnH);
             ctx.fillStyle='#CCC';ctx.font='bold 10px monospace';ctx.textAlign='center';
-            ctx.fillText('DESELEC.',dsBtnX+dsBtnW/2,dsBtnY+dsBtnH/2+4);ctx.textAlign='left';
+            ctx.fillText('LIMPAR',dsBtnX+dsBtnW/2,dsBtnY+dsBtnH/2+4);ctx.textAlign='left';
             mobileUI.touchButtons.push({x:dsBtnX,y:dsBtnY,w:dsBtnW,h:dsBtnH,fn:()=>{
                 gs.selectedUnits.forEach(u=>u.selected=false);gs.selectedUnits=[];
                 gs.selectedArmies=[];gs.selectedBuilding=null;gs.selectedBuildings=[];gs.showBuildingMenu=false;
