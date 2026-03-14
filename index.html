@@ -1084,6 +1084,70 @@ function initSprites(){
             c.fillStyle='#FFF';c.fillRect(13,15+lo,2,3);c.fillRect(17,15+lo,2,3);
         });
     }
+
+    // ─── Pixel Art Terrain Tiles (32x32) ───
+    SC.terrTiles={};
+    // tp: fill rect at (x,y,w,h) in canvas c with color col (raw pixel coords, no PX scale)
+    function tp(c,x,y,w,h,col){c.fillStyle=col;c.fillRect(x,y,w,h)}
+    // 4 variants each of grass, sand, road, water, forest
+    for(let v=0;v<4;v++){
+        // GRASS
+        SC.terrTiles[T.GRASS+'_'+v]=mkCanvas(TILE,TILE,(c)=>{
+            let bases=['#4a8c3f','#3d7a34','#5a9c4f','#46883c'];
+            tp(c,0,0,TILE,TILE,bases[v]);
+            // Dark green patches
+            for(let i=0;i<5;i++){let hx=hash(v*100+i*7,v*50+i*3)%TILE,hy=hash(i*3+v,v*7+i*13)%TILE;tp(c,hx,hy,2,2,'#3a7230')}
+            // Light green patches
+            for(let i=0;i<4;i++){let hx=hash(v*200+i*9,i*7+v*3)%TILE,hy=hash(i*5+v*2,v*11+i*17)%TILE;tp(c,hx,hy,2,2,'#5aaa4f')}
+            // Grass blades
+            let bx=hash(v*13+1,17)%(TILE-4),by=hash(v*7+2,23)%(TILE-8);
+            tp(c,bx,by+2,1,4,'#5aaa4f');tp(c,bx+2,by+1,1,3,'#4a8c3f');tp(c,bx+4,by+3,1,2,'#3d7a34');
+            // Flowers
+            if(v===1){let fx=hash(v*11,31)%(TILE-6)+2,fy=hash(v*9,37)%(TILE-6)+2;tp(c,fx,fy,2,2,'#e8d44d');tp(c,fx+1,fy-1,1,1,'#e8d44d')}
+            else if(v===3){let fx=hash(v*13,41)%(TILE-6)+2,fy=hash(v*11,43)%(TILE-6)+2;tp(c,fx,fy,2,2,'#CC6666');tp(c,fx+1,fy-1,1,1,'#CC6666')}
+        });
+        // SAND
+        SC.terrTiles[T.SAND+'_'+v]=mkCanvas(TILE,TILE,(c)=>{
+            let bases=['#e8d68a','#d8c67a','#ddd080','#e4d288'];
+            tp(c,0,0,TILE,TILE,bases[v]);
+            // Sandy texture pixels
+            for(let i=0;i<8;i++){let hx=hash(v*300+i*7,i*11+v)%TILE,hy=hash(i*13+v*5,v*100+i*3)%TILE;tp(c,hx,hy,1,1,'#c8b66a')}
+            for(let i=0;i<5;i++){let hx=hash(v*400+i*9,i*7+v*3)%TILE,hy=hash(i*11+v*3,v*200+i*5)%TILE;tp(c,hx,hy,1,1,'#f0e090')}
+            // Tiny pebble
+            if(v%2===0){let px2=hash(v*17,53)%(TILE-4)+1,py2=hash(v*13,59)%(TILE-4)+1;tp(c,px2,py2,2,1,'#b8a060');tp(c,px2,py2+1,2,1,'#c8b070')}
+        });
+        // ROAD (cobblestone ground)
+        SC.terrTiles[T.ROAD+'_'+v]=mkCanvas(TILE,TILE,(c)=>{
+            tp(c,0,0,TILE,TILE,'#7a6548');
+            // Cobblestone blocks: 8px grid, 6px stone with 2px gap, alternating offset per row
+            let offX=v%2===0?0:4;
+            for(let ry=0;ry<4;ry++){
+                for(let rx=0;rx<5;rx++){
+                    let bx=((rx*8)+((ry%2)*4)+offX)%TILE,by=ry*8;
+                    let col=hash(v*7+rx,v*11+ry)%3===0?'#9B8A70':'#8B7A60';
+                    tp(c,bx,by,6,6,col);
+                    tp(c,bx,by,6,1,'#9f8e78');tp(c,bx,by,1,6,'#9f8e78'); // top/left highlight
+                    tp(c,bx,by+5,6,1,'#6a5a42');tp(c,bx+5,by,1,6,'#6a5a42'); // bottom/right shadow
+                }
+            }
+        });
+        // WATER (river) - base tiles, animation added on top during render
+        SC.terrTiles[T.WATER+'_'+v]=mkCanvas(TILE,TILE,(c)=>{
+            let bases=['#2470a8','#2060a0','#2888c8','#1f5890'];
+            tp(c,0,0,TILE,TILE,bases[v]);
+            // Depth variation spots
+            for(let i=0;i<4;i++){let hx=hash(v*500+i*7,i*17+v*3)%(TILE-4),hy=hash(i*19+v*7,v*300+i*11)%(TILE-4);tp(c,hx,hy,3,2,'rgba(0,0,0,0.12)')}
+            // Static wave bands (8px apart)
+            for(let wy=1;wy<TILE;wy+=8){let woff=(v*4)%8;tp(c,(woff+2)%TILE,wy,7,1,'rgba(255,255,255,0.14)')}
+        });
+        // FOREST floor (dark green undergrowth behind tree sprites)
+        SC.terrTiles[T.FOREST+'_'+v]=mkCanvas(TILE,TILE,(c)=>{
+            let bases=['#2d5a1e','#253f16','#365c22','#2a5019'];
+            tp(c,0,0,TILE,TILE,bases[v]);
+            for(let i=0;i<6;i++){let hx=hash(v*600+i*7,i*13+v*5)%TILE,hy=hash(i*11+v*3,v*400+i*9)%TILE;tp(c,hx,hy,2,2,'#1e4a12')}
+            for(let i=0;i<3;i++){let hx=hash(v*700+i*9,i*11+v*7)%TILE,hy=hash(i*7+v*5,v*500+i*13)%TILE;tp(c,hx,hy,2,2,'#3d6a2e')}
+        });
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1711,7 +1775,7 @@ class Hunter extends Entity{
                     let d=dist(this.x,this.y,a.x,a.y);
                     if(d<cd){cd=d;corp=a}
                 }
-                if(corp){this.targetCorpse=corp;this.state='collecting';this.moveTarget=null;break}
+                if(corp){this.targetCorpse=corp;this.state='collecting';this.moveTarget=null;this.collectTimer=0.8;break}
                 this.targetAnimal=null;this.state='searching';this.moveTarget=null;break;
             }
             let d=dist(this.x,this.y,this.targetAnimal.x,this.targetAnimal.y);
@@ -1728,7 +1792,7 @@ class Hunter extends Entity{
                     let d=dist(this.x,this.y,a.x,a.y);
                     if(d<cd){cd=d;corp=a}
                 }
-                if(corp){this.targetCorpse=corp;this.state='collecting';this.moveTarget=null;break}
+                if(corp){this.targetCorpse=corp;this.state='collecting';this.moveTarget=null;this.collectTimer=0.8;break}
                 this.targetAnimal=null;this.state='searching';break;
             }
             let d=dist(this.x,this.y,this.targetAnimal.x,this.targetAnimal.y);
@@ -1773,7 +1837,14 @@ class Hunter extends Entity{
                     if(d<dd){dd=d;dest={x:bx,y:by}}
                 }
             }
-            if(!dest){this.state='searching';break}
+            if(!dest){
+                // No building to deliver to - drop food at current position
+                gs.resources.food+=this.carrying;
+                if(this.carrying>0)addParticle(this.x,this.y-16,'+'+this.carrying+' comida','#2ecc71');
+                this.carrying=0;
+                this.state='searching';this.moveTarget=null;
+                break;
+            }
             this.moveTarget=dest;
             if(dd<=TILE*2){this.state='delivering'}
             break;
@@ -1834,8 +1905,13 @@ class Hunter extends Entity{
             }
         }
         if(!drawn){
-            let sheet=SC[UNIT_SHEET_MAP['ARCHER']];
-            drawCharSheet(sheet,this.animState,this.dir,this.animFrame,sx-sz/2,sy-sz/2,sz);
+            // Fallback: draw with archer sheet but add a green hood tint to distinguish
+            let sheet=SC[UNIT_SHEET_MAP['HUNTER']];
+            if(!drawCharSheet(sheet,this.animState,this.dir,this.animFrame,sx-sz/2,sy-sz/2,sz)){
+                // Final fallback: draw a simple hunter silhouette
+                ctx.fillStyle='#4a7c3f';ctx.fillRect(sx-sz/2+4,sy-sz/2+2,sz-8,sz-4);
+                ctx.fillStyle='#2a5c1f';ctx.fillRect(sx-sz/2+6,sy-sz/2,sz-12,8);
+            }
         }
         ctx.globalAlpha=1;
         // Carry indicator
@@ -3525,12 +3601,15 @@ canvas.addEventListener('touchmove', (e) => {
                 if (!selBox) selBox = { x1: mouse.wx, y1: mouse.wy, x2: mouse.wx, y2: mouse.wy };
                 else { selBox.x2 = mouse.wx; selBox.y2 = mouse.wy; }
             } else {
-                // Build mode - update ghost position
+                // Build mode - update ghost position by dragging
                 touchToMouse(t);
+                let tile = w2t(mouse.wx, mouse.wy);
                 if (mobileUI.buildGhost) {
-                    let tile = w2t(mouse.wx, mouse.wy);
                     mobileUI.buildGhost.tileX = tile.x;
                     mobileUI.buildGhost.tileY = tile.y;
+                } else if (gs.buildMode) {
+                    // Create ghost on drag if not yet created
+                    mobileUI.buildGhost = { type: gs.buildMode, tileX: tile.x, tileY: tile.y };
                 }
             }
         }
@@ -3552,14 +3631,15 @@ canvas.addEventListener('touchend', (e) => {
     if (!touch.active) return;
     touch.active = false;
 
-    if (gs.phase !== 'playing' || gs.paused) return;
     if (touch.isLongPress) { touch.isLongPress = false; return; }
 
     touchToMouse({ clientX: touch.lastX, clientY: touch.lastY });
 
-    // Check UI buttons first
+    // Always check UI buttons first so pause/unpause and overlays work even when paused
     if (isClickUI(mouse.x, mouse.y)) return;
     if (isClickMobileUI(mouse.x, mouse.y)) return;
+
+    if (gs.phase !== 'playing' || gs.paused) return;
 
     if (gs.showGuide || gs.showDiplomacy) return;
 
@@ -3700,9 +3780,15 @@ function renderTerrain(){
             }
 
             let ter=gs.map[ty][tx];
-            let cols=TERRAIN_COLORS[ter];
-            ctx.fillStyle=cols[hash(tx,ty)%3];
-            ctx.fillRect(dx,dy,TILE,TILE);
+            // Draw pixel art terrain tile if available, else fallback to flat color
+            let terrKey=ter+'_'+(hash(tx,ty)%4);
+            if(SC.terrTiles&&SC.terrTiles[terrKey]){
+                ctx.drawImage(SC.terrTiles[terrKey],dx,dy);
+            } else {
+                let tcols=TERRAIN_COLORS[ter];
+                ctx.fillStyle=tcols[hash(tx,ty)%3];
+                ctx.fillRect(dx,dy,TILE,TILE);
+            }
 
             let terr=getTerritoryByTile(tx,ty);
             if(terr){
@@ -3727,21 +3813,13 @@ function renderTerrain(){
             if(ter===T.MOUNTAIN){
                 ctx.drawImage(SC.rock,dx,dy);
             }
-            if(ter===T.GRASS){
-                let det=hash(tx*3,ty*5)%12;
-                if(det<2){ctx.fillStyle='#5aaa4f';ctx.fillRect(dx+(hash(tx,ty)%20),dy+(hash(ty,tx)%20),3,5)}
-                if(det===3){ctx.fillStyle='#e8d44d';ctx.fillRect(dx+10,dy+12,3,3)}
-                if(det===4){ctx.fillStyle='#C66';ctx.fillRect(dx+16,dy+8,3,3)} // flor
-            }
             if(ter===T.WATER){
+                // Animated wave overlay on top of pixel art base
                 let w=Math.sin(gs.gameTime*2+tx*0.5+ty*0.3)*3;
-                ctx.fillStyle='rgba(255,255,255,0.12)';
-                ctx.fillRect(dx+6+w,dy+12,10,2);
-                ctx.fillRect(dx+14-w,dy+20,8,2);
-            }
-            if(ter===T.ROAD){
-                ctx.fillStyle='#6B5345';
-                ctx.fillRect(dx+4,dy+14,6,3);ctx.fillRect(dx+18,dy+6,5,3);
+                ctx.fillStyle='rgba(255,255,255,0.15)';
+                ctx.fillRect(dx+5+w,dy+8,10,2);
+                ctx.fillRect(dx+16-w,dy+18,8,2);
+                ctx.fillRect(dx+3+w,dy+24,12,1);
             }
             if(ter===T.FIELD){
                 let det=hash(tx*2,ty*3)%4;
@@ -4552,9 +4630,9 @@ function renderUI(){
 
         // ─── Mobile Pause Button ───
         let pauseBtnY=diploBtnY+btnSize+pad;
-        ctx.fillStyle='rgba(30,30,60,0.85)';
+        ctx.fillStyle=gs.paused?'rgba(255,200,0,0.3)':'rgba(30,30,60,0.85)';
         ctx.fillRect(rightX,pauseBtnY,btnSize,btnSize);
-        ctx.strokeStyle='#AAA';ctx.lineWidth=2;ctx.strokeRect(rightX,pauseBtnY,btnSize,btnSize);
+        ctx.strokeStyle=gs.paused?'#FFD700':'#AAA';ctx.lineWidth=2;ctx.strokeRect(rightX,pauseBtnY,btnSize,btnSize);
         drawIC('pause',rightX+8,pauseBtnY+8,30);
         mobileUI.touchButtons.push({x:rightX,y:pauseBtnY,w:btnSize,h:btnSize,fn:()=>{gs.paused=!gs.paused}});
 
@@ -4749,7 +4827,8 @@ function renderUI(){
         // ─── Ghost Building Preview (mobile) ───
         if(mobileUI.buildGhost){
             let def=BUILD[mobileUI.buildGhost.type];
-            let tile=w2t(mouse.wx,mouse.wy);
+            // Use stored ghost tile position so preview stays fixed while tapping buttons
+            let tile={x:mobileUI.buildGhost.tileX,y:mobileUI.buildGhost.tileY};
             ctx.save();ctx.scale(gs.zoom,gs.zoom);
             let sx=tile.x*TILE-gs.camera.x,sy=tile.y*TILE-gs.camera.y;
             let gw=def.w*TILE,gh=def.h*TILE;
@@ -4762,16 +4841,18 @@ function renderUI(){
             ctx.restore();
             // Confirm/Cancel buttons
             let cbW=120,cbH=36,cbY=H-btmH-cbH-60;
-            ctx.fillStyle='rgba(0,180,0,0.85)';ctx.fillRect(W/2-cbW-10,cbY,cbW,cbH);
-            ctx.strokeStyle='#0F0';ctx.lineWidth=2;ctx.strokeRect(W/2-cbW-10,cbY,cbW,cbH);
+            ctx.fillStyle=ok?'rgba(0,180,0,0.85)':'rgba(80,80,80,0.85)';ctx.fillRect(W/2-cbW-10,cbY,cbW,cbH);
+            ctx.strokeStyle=ok?'#0F0':'#888';ctx.lineWidth=2;ctx.strokeRect(W/2-cbW-10,cbY,cbW,cbH);
             ctx.fillStyle='#FFF';ctx.font='bold 14px monospace';ctx.textAlign='center';
             ctx.fillText('✓ CONFIRMAR',W/2-cbW/2-10,cbY+24);ctx.textAlign='left';
             mobileUI.touchButtons.push({x:W/2-cbW-10,y:cbY,w:cbW,h:cbH,fn:()=>{
                 let type=mobileUI.buildGhost.type;let bdef=BUILD[type];
-                let btile=w2t(mouse.wx,mouse.wy);
+                // Use the stored ghost tile position, not the button tap position
+                let btile={x:mobileUI.buildGhost.tileX,y:mobileUI.buildGhost.tileY};
+                let wx=btile.x*TILE+bdef.w*TILE/2,wy=btile.y*TILE+bdef.h*TILE/2;
                 if(canBuild(btile.x,btile.y,bdef)&&canAfford(bdef.cost)){
                     spend(bdef.cost);gs.buildings.push(new Building(btile.x,btile.y,type));
-                    addMessage('[+] '+bdef.name+' construído!');addParticle(mouse.wx,mouse.wy,'+','#00FF00');
+                    addMessage('[+] '+bdef.name+' construído!');addParticle(wx,wy,'+','#00FF00');
                 }else if(!canAfford(bdef.cost)){addMessage('[x] Recursos insuficientes!')}
                 else{addMessage('[x] Local inválido!')}
                 mobileUI.buildGhost=null;gs.buildMode=null;
