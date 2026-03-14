@@ -252,7 +252,11 @@ const mobileUI = {
     showArmyPanel: false,
     showBattleButtons: false,
     buildGhost: null,  // {type, tileX, tileY} for ghost placement
-    touchButtons: []   // touch-specific UI buttons
+    touchButtons: [],  // touch-specific UI buttons
+    panelScrollY: 0,   // scroll offset for build/recruit/army panels
+    panelScrolling: false, // is user scrolling inside a panel
+    panelTouchStartY: 0,  // track touch start for panel scroll
+    panelMaxScroll: 0     // max scroll offset for current panel
 };
 
 // Auto-save state
@@ -3016,6 +3020,33 @@ function isClickMobileUI(mx, my) {
     return false;
 }
 
+// Check if touch is inside an open mobile panel (for scroll handling)
+function isTouchInMobilePanel(mx, my) {
+    if (!isMobile) return false;
+    let barH = 52, pad = 6;
+    let btmH = isMobile ? 42 : 50;
+    let py = barH + pad;
+    if (mobileUI.showBuildPanel) {
+        let pw = Math.min(240, W * 0.6);
+        let headerH = 42;
+        let maxPH = H - barH - btmH - pad * 2 - 16;
+        if (mx >= pad && mx <= pad + pw && my >= py + headerH && my <= py + maxPH) return true;
+    }
+    if (mobileUI.showRecruitPanel) {
+        let pw = Math.min(250, W * 0.65);
+        let headerH = 42;
+        let maxPH = H - barH - btmH - pad * 2 - 16;
+        if (mx >= pad && mx <= pad + pw && my >= py + headerH && my <= py + maxPH) return true;
+    }
+    if (mobileUI.showArmyPanel) {
+        let pw = Math.min(250, W * 0.65);
+        let headerH = 42;
+        let maxPH = H - barH - btmH - pad * 2 - 16;
+        if (mx >= pad && mx <= pad + pw && my >= py + headerH && my <= py + maxPH) return true;
+    }
+    return false;
+}
+
 canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
     let touches = e.touches;
@@ -3042,6 +3073,10 @@ canvas.addEventListener('touchstart', (e) => {
         touch.isPanning = false;
         touch.isLongPress = false;
         touchToMouse(t);
+
+        // Detect if touch starts inside a mobile panel (for scrolling)
+        mobileUI.panelScrolling = isTouchInMobilePanel(t.clientX, t.clientY);
+        mobileUI.panelTouchStartY = t.clientY;
 
         // Long press detection (simulates right-click for move/attack)
         touch.longPressTimer = setTimeout(() => {
@@ -3116,6 +3151,15 @@ canvas.addEventListener('touchmove', (e) => {
             if (touch.longPressTimer) { clearTimeout(touch.longPressTimer); touch.longPressTimer = null; }
         }
 
+        // Handle panel scrolling on mobile
+        if (mobileUI.panelScrolling && touch.moved) {
+            let scrollDelta = touch.lastY - t.clientY;
+            mobileUI.panelScrollY = clamp(mobileUI.panelScrollY + scrollDelta, 0, mobileUI.panelMaxScroll);
+            touch.lastX = t.clientX;
+            touch.lastY = t.clientY;
+            return;
+        }
+
         if (touch.moved && !touch.isLongPress) {
             // If no units selected and no build mode → pan camera
             if (!gs.buildMode && !selBox && gs.selectedUnits.length === 0) {
@@ -3149,6 +3193,10 @@ canvas.addEventListener('touchend', (e) => {
     e.preventDefault();
     if (touch.longPressTimer) { clearTimeout(touch.longPressTimer); touch.longPressTimer = null; }
 
+    // Reset panel scrolling state
+    let wasScrollingPanel = mobileUI.panelScrolling;
+    mobileUI.panelScrolling = false;
+
     if (touch.isPinching) {
         if (e.touches.length < 2) touch.isPinching = false;
         return;
@@ -3159,6 +3207,9 @@ canvas.addEventListener('touchend', (e) => {
 
     if (gs.phase !== 'playing' || gs.paused) return;
     if (touch.isLongPress) { touch.isLongPress = false; return; }
+
+    // If was scrolling panel, don't process as game tap
+    if (wasScrollingPanel && touch.moved) return;
 
     touchToMouse({ clientX: touch.lastX, clientY: touch.lastY });
 
@@ -3642,7 +3693,7 @@ function renderUI(){
     }
 
     // ─── Barra de Ações (Base) ───
-    let btmH=isMobile?36:50;let btmY=H-btmH;
+    let btmH=isMobile?42:50;let btmY=H-btmH;
     let btmGrad=ctx.createLinearGradient(0,btmY,0,H);
     btmGrad.addColorStop(0,'rgba(8,8,25,0.88)');
     btmGrad.addColorStop(1,'rgba(15,15,40,0.95)');
@@ -3652,23 +3703,23 @@ function renderUI(){
 
     if(isMobile){
         // Mobile: compact status in bottom bar
-        ctx.font='10px monospace';ctx.fillStyle='#999';
+        ctx.font='12px monospace';ctx.fillStyle='#999';
         if(gs.buildMode){
             let def=BUILD[gs.buildMode];
-            ctx.fillStyle='#FFD700';drawIC('build',6,btmY+6,14);
-            ctx.fillText(def.name+' - Toque para posicionar',24,btmY+18);
+            ctx.fillStyle='#FFD700';drawIC('build',6,btmY+8,16);
+            ctx.fillText(def.name+' - Toque para posicionar',28,btmY+22);
         } else if(gs.selectedUnits.length>0){
-            ctx.fillStyle='#0F0';drawIC('star',6,btmY+6,14);
-            ctx.fillText(gs.selectedUnits.length+' unidade(s) - Toque: mover | Longo: atacar',24,btmY+18);
+            ctx.fillStyle='#0F0';drawIC('star',6,btmY+8,16);
+            ctx.fillText(gs.selectedUnits.length+' unidade(s) | Toque: mover | Longo: atacar',28,btmY+22);
         } else if(gs.selectedArmies.length>0){
             let total=gs.selectedArmies.reduce((acc,a)=>acc+armyCount(a.comp),0);
-            ctx.fillStyle='#65D6FF';drawIC('flag',6,btmY+6,14);
-            ctx.fillText(gs.selectedArmies.length+' exército(s): '+total+' tropas',24,btmY+18);
+            ctx.fillStyle='#65D6FF';drawIC('flag',6,btmY+8,16);
+            ctx.fillText(gs.selectedArmies.length+' exército(s): '+total+' tropas',28,btmY+22);
         } else {
             ctx.fillStyle='#777';
             let troopCount=gs.units.filter(u=>u.alive).length;
-            ctx.fillText('⚔️'+troopCount+' tropas | Onda '+gs.waveNumber+' | Zoom x'+gs.zoom.toFixed(1),8,btmY+14);
-            ctx.fillText('Forja:'+gs.upgrades.forge+'/5 | Alv:'+gs.upgrades.masonry+'/5',8,btmY+28);
+            ctx.fillText('⚔️'+troopCount+' | Onda '+gs.waveNumber+' | Zoom x'+gs.zoom.toFixed(1),8,btmY+16);
+            ctx.fillText('Forja:'+gs.upgrades.forge+'/5 | Alv:'+gs.upgrades.masonry+'/5',8,btmY+32);
         }
     } else {
         ctx.font='11px monospace';ctx.fillStyle='#666';
@@ -3712,8 +3763,8 @@ function renderUI(){
         }
     }
 
-    // ─── Menu Construção ───
-    if(gs.showBuildMenu){
+    // ─── Menu Construção (desktop only) ───
+    if(gs.showBuildMenu && !isMobile){
         let mw=280,mh=BUILD_LIST.length*48+45,mx=15,my=btmY-mh-10;
         ctx.fillStyle='rgba(12,12,30,0.96)';ctx.fillRect(mx,my,mw,mh);
         ctx.strokeStyle='rgba(255,215,0,0.5)';ctx.lineWidth=2;ctx.strokeRect(mx,my,mw,mh);
@@ -3742,8 +3793,8 @@ function renderUI(){
         }
     }
 
-    // ─── Menu Recrutamento ───
-    if(gs.showRecruitMenu){
+    // ─── Menu Recrutamento (desktop only) ───
+    if(gs.showRecruitMenu && !isMobile){
         let mw=300,mh=UNIT_LIST.length*48+55,mx=310,my=btmY-mh-10;
         ctx.fillStyle='rgba(12,12,30,0.96)';ctx.fillRect(mx,my,mw,mh);
         ctx.strokeStyle='rgba(200,70,70,0.5)';ctx.lineWidth=2;ctx.strokeRect(mx,my,mw,mh);
@@ -3771,30 +3822,41 @@ function renderUI(){
     // ─── Menu Construção Selecionada ───
     if(gs.showBuildingMenu&&gs.selectedBuilding&&!gs.showRecruitMenu){
         let sb=gs.selectedBuilding;
-        let mw=250,mh=sb.type==='CASTLE'?80:160,mx=W/2-mw/2,my=btmY-mh-15;
+        let mobBtnH=isMobile?36:28;
+        let mw=isMobile?Math.min(280,W*0.75):250;
+        let mh=sb.type==='CASTLE'?(isMobile?90:80):(isMobile?180:160);
+        let mx=W/2-mw/2,my=btmY-mh-15;
         ctx.fillStyle='rgba(12,12,30,0.96)';ctx.fillRect(mx,my,mw,mh);
         ctx.strokeStyle='rgba(255,215,0,0.5)';ctx.lineWidth=2;ctx.strokeRect(mx,my,mw,mh);
-        drawIC(sb.def.icon,mx+10,my+6,18);
-        ctx.fillStyle='#FFD700';ctx.font='bold 14px monospace';ctx.fillText(sb.def.name,mx+34,my+22);
+        drawIC(sb.def.icon,mx+10,my+6,20);
+        ctx.fillStyle='#FFD700';ctx.font='bold 14px monospace';ctx.fillText(sb.def.name,mx+36,my+22);
+        // Close button for mobile
+        if(isMobile){
+            let cbX=mx+mw-32,cbY2=my+6;
+            ctx.fillStyle='rgba(180,50,50,0.7)';ctx.fillRect(cbX,cbY2,26,26);
+            ctx.strokeStyle='#F44';ctx.lineWidth=1;ctx.strokeRect(cbX,cbY2,26,26);
+            ctx.fillStyle='#FFF';ctx.font='bold 14px monospace';ctx.fillText('✕',cbX+7,cbY2+19);
+            uiButtons.push({x:cbX,y:cbY2,w:26,h:26,fn:()=>{gs.selectedBuilding=null;gs.showBuildingMenu=false;gs.selectedBuildings=[]}});
+        }
         ctx.fillStyle='#AAA';ctx.font='12px monospace';
-        ctx.fillText('HP: '+sb.hp+'/'+sb.maxHp,mx+10,my+40);
-        if(sb.def.produces){let pr='';for(let r in sb.def.produces)pr+=r+':+'+sb.def.produces[r]+' ';ctx.fillText('Produz: '+pr,mx+10,my+56)}
+        ctx.fillText('HP: '+sb.hp+'/'+sb.maxHp,mx+10,my+42);
+        if(sb.def.produces){let pr='';for(let r in sb.def.produces)pr+=r+':+'+sb.def.produces[r]+' ';ctx.fillText('Produz: '+pr,mx+10,my+58)}
         if(sb.type!=='CASTLE'){
             // Mover button
-            let btnY1=my+mh-70;
-            ctx.fillStyle='rgba(0,100,200,0.5)';ctx.fillRect(mx+10,btnY1,mw-20,28);
-            ctx.strokeStyle='rgba(0,180,255,0.4)';ctx.lineWidth=1;ctx.strokeRect(mx+10,btnY1,mw-20,28);
-            drawIC('move',mx+16,btnY1+5,16);
-            ctx.fillStyle='#FFF';ctx.font='13px monospace';ctx.fillText('[M] Mover',mx+38,btnY1+18);
-            uiButtons.push({x:mx+10,y:btnY1,w:mw-20,h:28,fn:()=>{startMoveBuilding(sb)}});
+            let btnY1=my+mh-mobBtnH*2-14;
+            ctx.fillStyle='rgba(0,100,200,0.5)';ctx.fillRect(mx+10,btnY1,mw-20,mobBtnH);
+            ctx.strokeStyle='rgba(0,180,255,0.4)';ctx.lineWidth=1;ctx.strokeRect(mx+10,btnY1,mw-20,mobBtnH);
+            drawIC('move',mx+16,btnY1+Math.floor(mobBtnH/2)-8,16);
+            ctx.fillStyle='#FFF';ctx.font=(isMobile?'bold 14':'13')+'px monospace';ctx.fillText(isMobile?'Mover':'[M] Mover',mx+38,btnY1+Math.floor(mobBtnH/2)+5);
+            uiButtons.push({x:mx+10,y:btnY1,w:mw-20,h:mobBtnH,fn:()=>{startMoveBuilding(sb)}});
             // Vender button
-            let btnY2=my+mh-36;
+            let btnY2=my+mh-mobBtnH-6;
             let refG=Math.floor((sb.def.cost.gold||0)*0.5),refW=Math.floor((sb.def.cost.wood||0)*0.5);
-            ctx.fillStyle='rgba(180,50,50,0.5)';ctx.fillRect(mx+10,btnY2,mw-20,28);
-            ctx.strokeStyle='rgba(255,100,100,0.4)';ctx.lineWidth=1;ctx.strokeRect(mx+10,btnY2,mw-20,28);
-            drawIC('gold',mx+16,btnY2+5,16);
-            ctx.fillStyle='#FFF';ctx.font='13px monospace';ctx.fillText('[V] Vender ('+refG+'g '+refW+'w)',mx+38,btnY2+18);
-            uiButtons.push({x:mx+10,y:btnY2,w:mw-20,h:28,fn:()=>{sellBuilding(sb)}});
+            ctx.fillStyle='rgba(180,50,50,0.5)';ctx.fillRect(mx+10,btnY2,mw-20,mobBtnH);
+            ctx.strokeStyle='rgba(255,100,100,0.4)';ctx.lineWidth=1;ctx.strokeRect(mx+10,btnY2,mw-20,mobBtnH);
+            drawIC('gold',mx+16,btnY2+Math.floor(mobBtnH/2)-8,16);
+            ctx.fillStyle='#FFF';ctx.font=(isMobile?'bold 14':'13')+'px monospace';ctx.fillText((isMobile?'Vender':'[V] Vender')+' ('+refG+'g '+refW+'w)',mx+38,btnY2+Math.floor(mobBtnH/2)+5);
+            uiButtons.push({x:mx+10,y:btnY2,w:mw-20,h:mobBtnH,fn:()=>{sellBuilding(sb)}});
         }
     }
 
@@ -3823,7 +3885,7 @@ function renderUI(){
     }
 
     // ─── Minimapa ───
-    let mmS=isMobile?80:140,mmX=W-mmS-(isMobile?64:12),mmY=barH+4;
+    let mmS=isMobile?80:140,mmX=W-mmS-(isMobile?68:12),mmY=barH+4;
     ctx.fillStyle='rgba(0,0,0,0.85)';ctx.fillRect(mmX-3,mmY-3,mmS+6,mmS+6);
     ctx.strokeStyle='#FFD700';ctx.lineWidth=1;ctx.strokeRect(mmX-3,mmY-3,mmS+6,mmS+6);
 
@@ -3862,13 +3924,19 @@ function renderUI(){
 
     if(gs.showGuide){
         let matches=getGuideMatches(gs.guideQuery);
-        let bw=Math.min(760,W-80),bh=Math.min(540,H-120),bx=(W-bw)/2,by=(H-bh)/2;
+        let bw=Math.min(760,W-(isMobile?20:80)),bh=Math.min(540,H-(isMobile?40:120)),bx=(W-bw)/2,by=(H-bh)/2;
         ctx.fillStyle='rgba(8,8,18,0.94)';ctx.fillRect(bx,by,bw,bh);
         ctx.strokeStyle='#d8b46a';ctx.lineWidth=3;ctx.strokeRect(bx,by,bw,bh);
-        ctx.fillStyle='#f3d48a';ctx.font='bold 24px monospace';ctx.textAlign='left';
+        ctx.fillStyle='#f3d48a';ctx.font='bold '+(isMobile?'18':'24')+'px monospace';ctx.textAlign='left';
         ctx.fillText('Livro do Reino',bx+24,by+36);
+        // Close button
+        let gcX=bx+bw-40,gcY=by+8;
+        ctx.fillStyle='rgba(180,50,50,0.8)';ctx.fillRect(gcX,gcY,30,30);
+        ctx.strokeStyle='#F44';ctx.lineWidth=2;ctx.strokeRect(gcX,gcY,30,30);
+        ctx.fillStyle='#FFF';ctx.font='bold 16px monospace';ctx.fillText('✕',gcX+8,gcY+22);
+        uiButtons.push({x:gcX,y:gcY,w:30,h:30,fn:()=>{gs.showGuide=false}});
         ctx.font='12px monospace';ctx.fillStyle='#aaa';
-        ctx.fillText('Digite para pesquisar. Backspace apaga. O ou ESC fecha.',bx+24,by+58);
+        ctx.fillText(isMobile?'Toque ✕ para fechar':'Digite para pesquisar. O ou ESC fecha.',bx+24,by+58);
         ctx.fillStyle='rgba(255,255,255,0.08)';ctx.fillRect(bx+24,by+74,bw-48,34);
         ctx.strokeStyle='#666';ctx.lineWidth=1;ctx.strokeRect(bx+24,by+74,bw-48,34);
         ctx.fillStyle='#fff';ctx.font='14px monospace';
@@ -3904,13 +3972,19 @@ function renderUI(){
 
     // ─── Painel de Diplomacia ───
     if(gs.showDiplomacy){
-        let dw=Math.min(620,W-80),dh=Math.min(480,H-120),dx2=(W-dw)/2,dy2=(H-dh)/2;
+        let dw=Math.min(620,W-(isMobile?20:80)),dh=Math.min(480,H-(isMobile?40:120)),dx2=(W-dw)/2,dy2=(H-dh)/2;
         ctx.fillStyle='rgba(8,8,18,0.94)';ctx.fillRect(dx2,dy2,dw,dh);
         ctx.strokeStyle='#CC4444';ctx.lineWidth=3;ctx.strokeRect(dx2,dy2,dw,dh);
-        ctx.fillStyle='#FFD700';ctx.font='bold 22px monospace';ctx.textAlign='left';
-        drawIC('diplomacy',dx2+18,dy2+14,22);ctx.fillText('Diplomacia dos Reinos',dx2+46,dy2+32);
+        ctx.fillStyle='#FFD700';ctx.font='bold '+(isMobile?'18':'22')+'px monospace';ctx.textAlign='left';
+        drawIC('diplomacy',dx2+18,dy2+14,22);ctx.fillText(isMobile?'Diplomacia':'Diplomacia dos Reinos',dx2+46,dy2+32);
+        // Close button
+        let dcX=dx2+dw-40,dcY=dy2+8;
+        ctx.fillStyle='rgba(180,50,50,0.8)';ctx.fillRect(dcX,dcY,30,30);
+        ctx.strokeStyle='#F44';ctx.lineWidth=2;ctx.strokeRect(dcX,dcY,30,30);
+        ctx.fillStyle='#FFF';ctx.font='bold 16px monospace';ctx.fillText('✕',dcX+8,dcY+22);
+        uiButtons.push({x:dcX,y:dcY,w:30,h:30,fn:()=>{gs.showDiplomacy=false}});
         ctx.font='11px monospace';ctx.fillStyle='#aaa';
-        ctx.fillText('[N] ou [ESC] para fechar',dx2+20,dy2+50);
+        ctx.fillText(isMobile?'Toque ✕ para fechar':'[N] ou [ESC] para fechar',dx2+20,dy2+50);
 
         let kingdoms=[
             {owner:OWNER.ENEMY_A,name:'Reino dos Bárbaros',icon:'axe',color:'#F06262'},
@@ -4035,21 +4109,22 @@ function renderUI(){
     }
 
     // ═══════════════════════════════════════════════════════════
-    // MOBILE UI OVERLAY
+    // MOBILE UI OVERLAY (improved)
     // ═══════════════════════════════════════════════════════════
     if(isMobile && gs.phase==='playing'){
         mobileUI.touchButtons=[];
-        let btnSize=48,pad=8,rightX=W-btnSize-pad;
+        let btnSize=52,pad=6,rightX=W-btnSize-pad;
 
         // ─── Mobile Build Button (right side) ───
-        let buildBtnY=barH+pad+10;
+        let buildBtnY=barH+pad+8;
         ctx.fillStyle=mobileUI.showBuildPanel?'rgba(255,215,0,0.7)':'rgba(30,30,60,0.85)';
         ctx.fillRect(rightX,buildBtnY,btnSize,btnSize);
         ctx.strokeStyle='#FFD700';ctx.lineWidth=2;ctx.strokeRect(rightX,buildBtnY,btnSize,btnSize);
-        drawIC('build',rightX+8,buildBtnY+8,30);
+        drawIC('build',rightX+10,buildBtnY+10,30);
         mobileUI.touchButtons.push({x:rightX,y:buildBtnY,w:btnSize,h:btnSize,fn:()=>{
             mobileUI.showBuildPanel=!mobileUI.showBuildPanel;mobileUI.showRecruitPanel=false;mobileUI.showArmyPanel=false;
-            gs.showBuildMenu=mobileUI.showBuildPanel;gs.showRecruitMenu=false;
+            mobileUI.panelScrollY=0;
+            gs.showBuildMenu=false;gs.showRecruitMenu=false;
             if(!mobileUI.showBuildPanel){gs.buildMode=null;mobileUI.buildGhost=null;}
         }});
 
@@ -4058,10 +4133,11 @@ function renderUI(){
         ctx.fillStyle=mobileUI.showRecruitPanel?'rgba(200,70,70,0.7)':'rgba(30,30,60,0.85)';
         ctx.fillRect(rightX,recruitBtnY,btnSize,btnSize);
         ctx.strokeStyle='#F66';ctx.lineWidth=2;ctx.strokeRect(rightX,recruitBtnY,btnSize,btnSize);
-        drawIC('swords',rightX+8,recruitBtnY+8,30);
+        drawIC('swords',rightX+10,recruitBtnY+10,30);
         mobileUI.touchButtons.push({x:rightX,y:recruitBtnY,w:btnSize,h:btnSize,fn:()=>{
             mobileUI.showRecruitPanel=!mobileUI.showRecruitPanel;mobileUI.showBuildPanel=false;mobileUI.showArmyPanel=false;
-            gs.showRecruitMenu=mobileUI.showRecruitPanel;gs.showBuildMenu=false;
+            mobileUI.panelScrollY=0;
+            gs.showRecruitMenu=false;gs.showBuildMenu=false;
             if(!mobileUI.showRecruitPanel)gs.buildMode=null;
         }});
 
@@ -4070,9 +4146,10 @@ function renderUI(){
         ctx.fillStyle=mobileUI.showArmyPanel?'rgba(70,180,255,0.7)':'rgba(30,30,60,0.85)';
         ctx.fillRect(rightX,armyBtnY,btnSize,btnSize);
         ctx.strokeStyle='#4FC3F7';ctx.lineWidth=2;ctx.strokeRect(rightX,armyBtnY,btnSize,btnSize);
-        drawIC('flag',rightX+8,armyBtnY+8,30);
+        drawIC('flag',rightX+10,armyBtnY+10,30);
         mobileUI.touchButtons.push({x:rightX,y:armyBtnY,w:btnSize,h:btnSize,fn:()=>{
             mobileUI.showArmyPanel=!mobileUI.showArmyPanel;mobileUI.showBuildPanel=false;mobileUI.showRecruitPanel=false;
+            mobileUI.panelScrollY=0;
         }});
 
         // ─── Mobile Diplomacy Button ───
@@ -4080,7 +4157,7 @@ function renderUI(){
         ctx.fillStyle=gs.showDiplomacy?'rgba(200,70,70,0.7)':'rgba(30,30,60,0.85)';
         ctx.fillRect(rightX,diploBtnY,btnSize,btnSize);
         ctx.strokeStyle='#CC4444';ctx.lineWidth=2;ctx.strokeRect(rightX,diploBtnY,btnSize,btnSize);
-        drawIC('diplomacy',rightX+8,diploBtnY+8,30);
+        drawIC('diplomacy',rightX+10,diploBtnY+10,30);
         mobileUI.touchButtons.push({x:rightX,y:diploBtnY,w:btnSize,h:btnSize,fn:()=>{
             gs.showDiplomacy=!gs.showDiplomacy;gs.showGuide=false;
         }});
@@ -4090,7 +4167,7 @@ function renderUI(){
         ctx.fillStyle='rgba(30,30,60,0.85)';
         ctx.fillRect(rightX,pauseBtnY,btnSize,btnSize);
         ctx.strokeStyle='#AAA';ctx.lineWidth=2;ctx.strokeRect(rightX,pauseBtnY,btnSize,btnSize);
-        drawIC('pause',rightX+8,pauseBtnY+8,30);
+        drawIC('pause',rightX+10,pauseBtnY+10,30);
         mobileUI.touchButtons.push({x:rightX,y:pauseBtnY,w:btnSize,h:btnSize,fn:()=>{gs.paused=!gs.paused}});
 
         // ─── Mobile Guide Button ───
@@ -4098,128 +4175,238 @@ function renderUI(){
         ctx.fillStyle=gs.showGuide?'rgba(216,180,106,0.7)':'rgba(30,30,60,0.85)';
         ctx.fillRect(rightX,guideBtnY,btnSize,btnSize);
         ctx.strokeStyle='#d8b46a';ctx.lineWidth=2;ctx.strokeRect(rightX,guideBtnY,btnSize,btnSize);
-        drawIC('book',rightX+8,guideBtnY+8,30);
+        drawIC('book',rightX+10,guideBtnY+10,30);
         mobileUI.touchButtons.push({x:rightX,y:guideBtnY,w:btnSize,h:btnSize,fn:()=>{
             gs.showGuide=!gs.showGuide;gs.showDiplomacy=false;if(gs.showGuide)gs.guideQuery='';
         }});
 
-        // ─── Mobile Build Panel (left side, slide-in) ───
+        // ─── Mobile Build Panel (left side, scrollable) ───
         if(mobileUI.showBuildPanel){
-            let pw=Math.min(220,W*0.55),ph=BUILD_LIST.length*56+50,px2=pad,py=barH+pad;
+            let pw=Math.min(240,W*0.6),px2=pad,py=barH+pad;
+            let itemH=52,headerH=42;
+            let contentH=BUILD_LIST.length*itemH;
+            let maxPanelH=H-barH-btmH-pad*2-16;
+            let visibleH=Math.min(contentH+headerH,maxPanelH);
+            let ph=visibleH;
+            let needsScroll=contentH+headerH>maxPanelH;
+
+            mobileUI.panelMaxScroll=needsScroll?contentH+headerH-maxPanelH:0;
+            mobileUI.panelScrollY=clamp(mobileUI.panelScrollY,0,mobileUI.panelMaxScroll);
+
+            // Panel background
             ctx.fillStyle='rgba(12,12,30,0.96)';ctx.fillRect(px2,py,pw,ph);
             ctx.strokeStyle='rgba(255,215,0,0.5)';ctx.lineWidth=2;ctx.strokeRect(px2,py,pw,ph);
-            ctx.fillStyle='rgba(255,215,0,0.08)';ctx.fillRect(px2+1,py+1,pw-2,34);
-            drawIC('build',px2+8,py+6,20);
-            ctx.fillStyle='#FFD700';ctx.font='bold 14px monospace';ctx.fillText('CONSTRUÇÕES',px2+34,py+24);
+
+            // Header (fixed, not scrolled)
+            ctx.fillStyle='rgba(255,215,0,0.08)';ctx.fillRect(px2+1,py+1,pw-2,headerH-2);
+            drawIC('build',px2+8,py+8,22);
+            ctx.fillStyle='#FFD700';ctx.font='bold 14px monospace';ctx.fillText('CONSTRUÇÕES',px2+36,py+27);
+
+            // Close button in header
+            let closeX=px2+pw-32,closeY=py+6;
+            ctx.fillStyle='rgba(180,50,50,0.7)';ctx.fillRect(closeX,closeY,26,26);
+            ctx.strokeStyle='#F44';ctx.lineWidth=1;ctx.strokeRect(closeX,closeY,26,26);
+            ctx.fillStyle='#FFF';ctx.font='bold 14px monospace';ctx.fillText('✕',closeX+7,closeY+19);
+            mobileUI.touchButtons.push({x:closeX,y:closeY,w:26,h:26,fn:()=>{
+                mobileUI.showBuildPanel=false;gs.buildMode=null;mobileUI.buildGhost=null;mobileUI.panelScrollY=0;
+            }});
+
+            // Clip and draw scrollable items
+            ctx.save();
+            ctx.beginPath();ctx.rect(px2,py+headerH,pw,ph-headerH);ctx.clip();
 
             for(let i=0;i<BUILD_LIST.length;i++){
                 let type=BUILD_LIST[i],def=BUILD[type];
-                let by=py+40+i*56,ok=canAfford(def.cost);
+                let by=py+headerH+i*itemH-mobileUI.panelScrollY;
+                if(by+itemH<py+headerH||by>py+ph) continue; // skip offscreen
+                let ok=canAfford(def.cost);
                 ctx.fillStyle=type===gs.buildMode?'rgba(255,215,0,0.2)':'rgba(35,35,60,0.8)';
-                ctx.fillRect(px2+4,by,pw-8,50);
-                ctx.strokeStyle=ok?'rgba(100,100,140,0.5)':'rgba(100,50,50,0.5)';ctx.lineWidth=1;ctx.strokeRect(px2+4,by,pw-8,50);
-                drawIC(def.icon,px2+10,by+6,22);
+                ctx.fillRect(px2+4,by+2,pw-8,itemH-4);
+                ctx.strokeStyle=ok?'rgba(100,100,140,0.5)':'rgba(100,50,50,0.5)';ctx.lineWidth=1;ctx.strokeRect(px2+4,by+2,pw-8,itemH-4);
+                drawIC(def.icon,px2+10,by+8,24);
                 ctx.fillStyle=ok?'#EEE':'#666';ctx.font='bold 13px monospace';
-                ctx.fillText(def.name,px2+36,by+20);
-                ctx.fillStyle=ok?'#999':'#555';ctx.font='10px monospace';
-                ctx.fillText('G:'+def.cost.gold+' F:'+def.cost.food+' W:'+def.cost.wood,px2+36,by+36);
-                mobileUI.touchButtons.push({x:px2+4,y:by,w:pw-8,h:50,fn:(function(t){return function(){
-                    gs.buildMode=t;mobileUI.showBuildPanel=false;gs.showBuildMenu=false;
-                    addMessage('[i] Toque no mapa para posicionar');
-                }})(type)});
+                ctx.fillText(def.name,px2+40,by+22);
+                ctx.fillStyle=ok?'#999':'#555';ctx.font='11px monospace';
+                ctx.fillText('G:'+def.cost.gold+' F:'+def.cost.food+' W:'+def.cost.wood,px2+40,by+38);
+                // Only add touch button if visible
+                let visTop=Math.max(by+2,py+headerH),visBot=Math.min(by+itemH-2,py+ph);
+                if(visBot>visTop){
+                    mobileUI.touchButtons.push({x:px2+4,y:visTop,w:pw-8,h:visBot-visTop,fn:(function(t){return function(){
+                        gs.buildMode=t;mobileUI.showBuildPanel=false;gs.showBuildMenu=false;mobileUI.panelScrollY=0;
+                        addMessage('[i] Toque no mapa para posicionar');
+                    }})(type)});
+                }
+            }
+            ctx.restore();
+
+            // Scroll indicator
+            if(needsScroll){
+                let scrollBarH=Math.max(20,(ph-headerH)*(ph-headerH)/contentH);
+                let scrollBarY=py+headerH+(mobileUI.panelScrollY/Math.max(1,mobileUI.panelMaxScroll))*(ph-headerH-scrollBarH);
+                ctx.fillStyle='rgba(255,215,0,0.3)';ctx.fillRect(px2+pw-6,scrollBarY,4,scrollBarH);
             }
         }
 
-        // ─── Mobile Recruit Panel ───
+        // ─── Mobile Recruit Panel (scrollable) ───
         if(mobileUI.showRecruitPanel){
-            let pw=Math.min(240,W*0.6),ph=UNIT_LIST.length*56+60,px2=pad,py=barH+pad;
+            let pw=Math.min(250,W*0.65),px2=pad,py=barH+pad;
+            let itemH=52,headerH=42;
+            let contentH=UNIT_LIST.length*itemH+30;
+            let maxPanelH=H-barH-btmH-pad*2-16;
+            let visibleH=Math.min(contentH+headerH,maxPanelH);
+            let ph=visibleH;
+            let needsScroll=contentH+headerH>maxPanelH;
+
+            mobileUI.panelMaxScroll=needsScroll?contentH+headerH-maxPanelH:0;
+            mobileUI.panelScrollY=clamp(mobileUI.panelScrollY,0,mobileUI.panelMaxScroll);
+
             ctx.fillStyle='rgba(12,12,30,0.96)';ctx.fillRect(px2,py,pw,ph);
             ctx.strokeStyle='rgba(200,70,70,0.5)';ctx.lineWidth=2;ctx.strokeRect(px2,py,pw,ph);
-            ctx.fillStyle='rgba(200,70,70,0.08)';ctx.fillRect(px2+1,py+1,pw-2,34);
-            drawIC('swords',px2+8,py+6,20);
-            ctx.fillStyle='#F66';ctx.font='bold 14px monospace';ctx.fillText('RECRUTAR',px2+34,py+24);
+            ctx.fillStyle='rgba(200,70,70,0.08)';ctx.fillRect(px2+1,py+1,pw-2,headerH-2);
+            drawIC('swords',px2+8,py+8,22);
+            ctx.fillStyle='#F66';ctx.font='bold 14px monospace';ctx.fillText('RECRUTAR',px2+36,py+27);
+
+            // Close button
+            let closeX=px2+pw-32,closeY=py+6;
+            ctx.fillStyle='rgba(180,50,50,0.7)';ctx.fillRect(closeX,closeY,26,26);
+            ctx.strokeStyle='#F44';ctx.lineWidth=1;ctx.strokeRect(closeX,closeY,26,26);
+            ctx.fillStyle='#FFF';ctx.font='bold 14px monospace';ctx.fillText('✕',closeX+7,closeY+19);
+            mobileUI.touchButtons.push({x:closeX,y:closeY,w:26,h:26,fn:()=>{
+                mobileUI.showRecruitPanel=false;gs.buildMode=null;mobileUI.panelScrollY=0;
+            }});
+
+            ctx.save();
+            ctx.beginPath();ctx.rect(px2,py+headerH,pw,ph-headerH);ctx.clip();
 
             let hb=hasBarracks();
             for(let i=0;i<UNIT_LIST.length;i++){
                 let type=UNIT_LIST[i],def=UDEF[type];
-                let by=py+40+i*56,ok=canAfford(def.cost)&&hb&&getAvailablePop()>=(def.cost.pop||0);
-                ctx.fillStyle='rgba(35,35,60,0.8)';ctx.fillRect(px2+4,by,pw-8,50);
-                ctx.strokeStyle=ok?'rgba(100,100,140,0.5)':'rgba(100,50,50,0.5)';ctx.lineWidth=1;ctx.strokeRect(px2+4,by,pw-8,50);
-                drawIC(def.icon,px2+10,by+6,22);
+                let by=py+headerH+i*itemH-mobileUI.panelScrollY;
+                if(by+itemH<py+headerH||by>py+ph) continue;
+                let ok=canAfford(def.cost)&&hb&&getAvailablePop()>=(def.cost.pop||0);
+                ctx.fillStyle='rgba(35,35,60,0.8)';ctx.fillRect(px2+4,by+2,pw-8,itemH-4);
+                ctx.strokeStyle=ok?'rgba(100,100,140,0.5)':'rgba(100,50,50,0.5)';ctx.lineWidth=1;ctx.strokeRect(px2+4,by+2,pw-8,itemH-4);
+                drawIC(def.icon,px2+10,by+8,24);
                 ctx.fillStyle=ok?'#EEE':'#666';ctx.font='bold 13px monospace';
-                ctx.fillText(def.name,px2+36,by+20);
-                ctx.fillStyle=ok?'#999':'#555';ctx.font='10px monospace';
-                ctx.fillText('G:'+def.cost.gold+' F:'+def.cost.food+' Pop:'+(def.cost.pop||0),px2+36,by+36);
-                mobileUI.touchButtons.push({x:px2+4,y:by,w:pw-8,h:50,fn:(function(t){return function(){
-                    recruitUnit(t);
-                }})(type)});
+                ctx.fillText(def.name,px2+40,by+22);
+                ctx.fillStyle=ok?'#999':'#555';ctx.font='11px monospace';
+                ctx.fillText('G:'+def.cost.gold+' F:'+def.cost.food+' Pop:'+(def.cost.pop||0),px2+40,by+38);
+                let visTop=Math.max(by+2,py+headerH),visBot=Math.min(by+itemH-2,py+ph);
+                if(visBot>visTop){
+                    mobileUI.touchButtons.push({x:px2+4,y:visTop,w:pw-8,h:visBot-visTop,fn:(function(t){return function(){
+                        recruitUnit(t);
+                    }})(type)});
+                }
             }
-            if(!hb){ctx.fillStyle='#F44';ctx.font='12px monospace';drawIC('warn',px2+10,py+ph-20,14);ctx.fillText('Construa um Quartel!',px2+28,py+ph-10)}
+            if(!hb){
+                let wy=py+headerH+UNIT_LIST.length*itemH-mobileUI.panelScrollY;
+                ctx.fillStyle='#F44';ctx.font='bold 12px monospace';drawIC('warn',px2+10,wy+4,16);ctx.fillText('Construa um Quartel!',px2+30,wy+16);
+            }
+            ctx.restore();
+
+            if(needsScroll){
+                let scrollBarH=Math.max(20,(ph-headerH)*(ph-headerH)/(contentH));
+                let scrollBarY=py+headerH+(mobileUI.panelScrollY/Math.max(1,mobileUI.panelMaxScroll))*(ph-headerH-scrollBarH);
+                ctx.fillStyle='rgba(200,70,70,0.3)';ctx.fillRect(px2+pw-6,scrollBarY,4,scrollBarH);
+            }
         }
 
-        // ─── Mobile Army Panel ───
+        // ─── Mobile Army Panel (scrollable) ───
         if(mobileUI.showArmyPanel){
-            let pw=Math.min(240,W*0.6),px2=pad,py=barH+pad;
+            let pw=Math.min(250,W*0.65),px2=pad,py=barH+pad;
             let swordsmen=gs.units.filter(u=>u.alive&&u.type==='SWORDSMAN').length;
             let archers=gs.units.filter(u=>u.alive&&u.type==='ARCHER').length;
             let spearmen=gs.units.filter(u=>u.alive&&u.type==='SPEARMAN').length;
             let hunters=gs.units.filter(u=>u.alive&&u.type==='HUNTER').length;
             let armyList=gs.armies.filter(a=>a.owner===OWNER.PLAYER);
-            let ph=180+armyList.length*36;
+            let headerH=42;
+            let contentH=140+armyList.length*38;
+            let maxPanelH=H-barH-btmH-pad*2-16;
+            let visibleH=Math.min(contentH+headerH,maxPanelH);
+            let ph=visibleH;
+            let needsScroll=contentH+headerH>maxPanelH;
+
+            mobileUI.panelMaxScroll=needsScroll?contentH+headerH-maxPanelH:0;
+            mobileUI.panelScrollY=clamp(mobileUI.panelScrollY,0,mobileUI.panelMaxScroll);
+
             ctx.fillStyle='rgba(12,12,30,0.96)';ctx.fillRect(px2,py,pw,ph);
             ctx.strokeStyle='rgba(70,180,255,0.5)';ctx.lineWidth=2;ctx.strokeRect(px2,py,pw,ph);
-            ctx.fillStyle='rgba(70,180,255,0.08)';ctx.fillRect(px2+1,py+1,pw-2,34);
-            drawIC('flag',px2+8,py+6,20);
-            ctx.fillStyle='#4FC3F7';ctx.font='bold 14px monospace';ctx.fillText('EXÉRCITO',px2+34,py+24);
+            ctx.fillStyle='rgba(70,180,255,0.08)';ctx.fillRect(px2+1,py+1,pw-2,headerH-2);
+            drawIC('flag',px2+8,py+8,22);
+            ctx.fillStyle='#4FC3F7';ctx.font='bold 14px monospace';ctx.fillText('EXÉRCITO',px2+36,py+27);
 
-            ctx.fillStyle='#EEE';ctx.font='13px monospace';
-            let ey=py+50;
-            drawIC('swords',px2+10,ey-2,14);ctx.fillText('Espadachins: '+swordsmen,px2+30,ey+10);ey+=24;
-            drawIC('bow',px2+10,ey-2,14);ctx.fillText('Arqueiros: '+archers,px2+30,ey+10);ey+=24;
-            drawIC('spear',px2+10,ey-2,14);ctx.fillText('Lanceiros: '+spearmen,px2+30,ey+10);ey+=24;
-            drawIC('bow',px2+10,ey-2,14);ctx.fillText('Caçadores: '+hunters,px2+30,ey+10);ey+=24;
-
-            // Select all units button
-            let sabY=ey+6;
-            ctx.fillStyle='rgba(0,200,100,0.6)';ctx.fillRect(px2+8,sabY,pw-16,32);
-            ctx.strokeStyle='#0F0';ctx.lineWidth=1;ctx.strokeRect(px2+8,sabY,pw-16,32);
-            ctx.fillStyle='#FFF';ctx.font='bold 12px monospace';ctx.textAlign='center';
-            ctx.fillText('SELECIONAR TODOS',px2+pw/2,sabY+20);ctx.textAlign='left';
-            mobileUI.touchButtons.push({x:px2+8,y:sabY,w:pw-16,h:32,fn:()=>{
-                gs.selectedUnits.forEach(u=>u.selected=false);gs.selectedUnits=[];
-                for(let u of gs.units){if(!u.alive)continue;u.selected=true;gs.selectedUnits.push(u)}
-                mobileUI.showArmyPanel=false;
+            // Close button
+            let closeX=px2+pw-32,closeY=py+6;
+            ctx.fillStyle='rgba(180,50,50,0.7)';ctx.fillRect(closeX,closeY,26,26);
+            ctx.strokeStyle='#F44';ctx.lineWidth=1;ctx.strokeRect(closeX,closeY,26,26);
+            ctx.fillStyle='#FFF';ctx.font='bold 14px monospace';ctx.fillText('✕',closeX+7,closeY+19);
+            mobileUI.touchButtons.push({x:closeX,y:closeY,w:26,h:26,fn:()=>{
+                mobileUI.showArmyPanel=false;mobileUI.panelScrollY=0;
             }});
 
+            ctx.save();
+            ctx.beginPath();ctx.rect(px2,py+headerH,pw,ph-headerH);ctx.clip();
+
+            ctx.fillStyle='#EEE';ctx.font='13px monospace';
+            let ey=py+headerH+8-mobileUI.panelScrollY;
+            drawIC('swords',px2+10,ey,16);ctx.fillText('Espadachins: '+swordsmen,px2+32,ey+12);ey+=26;
+            drawIC('bow',px2+10,ey,16);ctx.fillText('Arqueiros: '+archers,px2+32,ey+12);ey+=26;
+            drawIC('spear',px2+10,ey,16);ctx.fillText('Lanceiros: '+spearmen,px2+32,ey+12);ey+=26;
+            drawIC('bow',px2+10,ey,16);ctx.fillText('Caçadores: '+hunters,px2+32,ey+12);ey+=26;
+
+            // Select all units button
+            let sabY=ey+8;
+            ctx.fillStyle='rgba(0,200,100,0.6)';ctx.fillRect(px2+8,sabY,pw-16,36);
+            ctx.strokeStyle='#0F0';ctx.lineWidth=1;ctx.strokeRect(px2+8,sabY,pw-16,36);
+            ctx.fillStyle='#FFF';ctx.font='bold 13px monospace';ctx.textAlign='center';
+            ctx.fillText('SELECIONAR TODOS',px2+pw/2,sabY+24);ctx.textAlign='left';
+            let sabVisTop=Math.max(sabY,py+headerH),sabVisBot=Math.min(sabY+36,py+ph);
+            if(sabVisBot>sabVisTop){
+                mobileUI.touchButtons.push({x:px2+8,y:sabVisTop,w:pw-16,h:sabVisBot-sabVisTop,fn:()=>{
+                    gs.selectedUnits.forEach(u=>u.selected=false);gs.selectedUnits=[];
+                    for(let u of gs.units){if(!u.alive)continue;u.selected=true;gs.selectedUnits.push(u)}
+                    mobileUI.showArmyPanel=false;mobileUI.panelScrollY=0;
+                }});
+            }
+
             // Army formations
-            ey=sabY+42;
+            ey=sabY+46;
             for(let ai=0;ai<armyList.length;ai++){
                 let a=armyList[ai];let total=armyCount(a.comp);
-                ctx.fillStyle='rgba(40,40,70,0.8)';ctx.fillRect(px2+8,ey,pw-16,30);
-                ctx.strokeStyle='#4FC3F7';ctx.lineWidth=1;ctx.strokeRect(px2+8,ey,pw-16,30);
-                ctx.fillStyle='#CCC';ctx.font='11px monospace';
-                ctx.fillText('Exército '+(ai+1)+': '+total+' tropas',px2+14,ey+20);
-                mobileUI.touchButtons.push({x:px2+8,y:ey,w:pw-16,h:30,fn:(function(army){return function(){
-                    gs.selectedArmies=[army];mobileUI.showArmyPanel=false;
-                }})(a)});
-                ey+=36;
+                ctx.fillStyle='rgba(40,40,70,0.8)';ctx.fillRect(px2+8,ey,pw-16,32);
+                ctx.strokeStyle='#4FC3F7';ctx.lineWidth=1;ctx.strokeRect(px2+8,ey,pw-16,32);
+                ctx.fillStyle='#CCC';ctx.font='12px monospace';
+                ctx.fillText('Exército '+(ai+1)+': '+total+' tropas',px2+14,ey+22);
+                let aVisTop=Math.max(ey,py+headerH),aVisBot=Math.min(ey+32,py+ph);
+                if(aVisBot>aVisTop){
+                    mobileUI.touchButtons.push({x:px2+8,y:aVisTop,w:pw-16,h:aVisBot-aVisTop,fn:(function(army){return function(){
+                        gs.selectedArmies=[army];mobileUI.showArmyPanel=false;mobileUI.panelScrollY=0;
+                    }})(a)});
+                }
+                ey+=38;
+            }
+            ctx.restore();
+
+            if(needsScroll){
+                let scrollBarH=Math.max(20,(ph-headerH)*(ph-headerH)/(contentH));
+                let scrollBarY=py+headerH+(mobileUI.panelScrollY/Math.max(1,mobileUI.panelMaxScroll))*(ph-headerH-scrollBarH);
+                ctx.fillStyle='rgba(70,180,255,0.3)';ctx.fillRect(px2+pw-6,scrollBarY,4,scrollBarH);
             }
         }
 
-        // ─── Quick Battle Buttons (bottom, when units are selected) ───
+        // ─── Quick Battle Buttons (bottom, when units/armies selected) ───
         if(gs.selectedUnits.length>0 || gs.selectedArmies.length>0){
-            let bbtnW=64,bbtnH=48,bbtnPad=10;
+            let bbtnW=72,bbtnH=52,bbtnPad=8;
             let totalW=(bbtnW+bbtnPad)*3-bbtnPad;
-            let bbtnX=W/2-totalW/2,bbtnY=H-btmH-bbtnH-16;
+            let bbtnX=W/2-totalW/2,bbtnY=H-btmH-bbtnH-12;
 
             // Attack button
             ctx.fillStyle='rgba(200,50,50,0.85)';ctx.fillRect(bbtnX,bbtnY,bbtnW,bbtnH);
             ctx.strokeStyle='#F44';ctx.lineWidth=2;ctx.strokeRect(bbtnX,bbtnY,bbtnW,bbtnH);
-            drawIC('swords',bbtnX+bbtnW/2-10,bbtnY+4,20);
-            ctx.fillStyle='#FFF';ctx.font='bold 10px monospace';ctx.textAlign='center';
+            drawIC('swords',bbtnX+bbtnW/2-10,bbtnY+4,22);
+            ctx.fillStyle='#FFF';ctx.font='bold 11px monospace';ctx.textAlign='center';
             ctx.fillText('ATACAR',bbtnX+bbtnW/2,bbtnY+bbtnH-6);ctx.textAlign='left';
             mobileUI.touchButtons.push({x:bbtnX,y:bbtnY,w:bbtnW,h:bbtnH,fn:()=>{
-                // Find nearest enemy and attack
                 let nearest=null,nd=Infinity;
                 for(let en of gs.enemies){
                     if(!en.alive)continue;
@@ -4236,8 +4423,8 @@ function renderUI(){
             bbtnX+=bbtnW+bbtnPad;
             ctx.fillStyle='rgba(50,100,200,0.85)';ctx.fillRect(bbtnX,bbtnY,bbtnW,bbtnH);
             ctx.strokeStyle='#48F';ctx.lineWidth=2;ctx.strokeRect(bbtnX,bbtnY,bbtnW,bbtnH);
-            drawIC('shield',bbtnX+bbtnW/2-10,bbtnY+4,20);
-            ctx.fillStyle='#FFF';ctx.font='bold 10px monospace';ctx.textAlign='center';
+            drawIC('shield',bbtnX+bbtnW/2-10,bbtnY+4,22);
+            ctx.fillStyle='#FFF';ctx.font='bold 11px monospace';ctx.textAlign='center';
             ctx.fillText('DEFENDER',bbtnX+bbtnW/2,bbtnY+bbtnH-6);ctx.textAlign='left';
             mobileUI.touchButtons.push({x:bbtnX,y:bbtnY,w:bbtnW,h:bbtnH,fn:()=>{
                 let castle=gs.buildings.find(b=>b.type==='CASTLE');
@@ -4257,14 +4444,25 @@ function renderUI(){
             bbtnX+=bbtnW+bbtnPad;
             ctx.fillStyle='rgba(50,150,50,0.85)';ctx.fillRect(bbtnX,bbtnY,bbtnW,bbtnH);
             ctx.strokeStyle='#4F4';ctx.lineWidth=2;ctx.strokeRect(bbtnX,bbtnY,bbtnW,bbtnH);
-            drawIC('flag',bbtnX+bbtnW/2-10,bbtnY+4,20);
-            ctx.fillStyle='#FFF';ctx.font='bold 10px monospace';ctx.textAlign='center';
+            drawIC('flag',bbtnX+bbtnW/2-10,bbtnY+4,22);
+            ctx.fillStyle='#FFF';ctx.font='bold 11px monospace';ctx.textAlign='center';
             ctx.fillText('EXÉRCITO',bbtnX+bbtnW/2,bbtnY+bbtnH-6);ctx.textAlign='left';
             mobileUI.touchButtons.push({x:bbtnX,y:bbtnY,w:bbtnW,h:bbtnH,fn:()=>{
                 if(gs.selectedUnits.length>0){
                     let t=worldToTerr(gs.king.x,gs.king.y);
                     unitsToArmy([...gs.selectedUnits],{x:t.x,y:t.y});
                 }
+            }});
+
+            // Deselect button (useful on mobile)
+            let dsBtnW=72,dsBtnH=36,dsBtnX=W/2-dsBtnW/2,dsBtnY=bbtnY-dsBtnH-8;
+            ctx.fillStyle='rgba(80,80,100,0.85)';ctx.fillRect(dsBtnX,dsBtnY,dsBtnW,dsBtnH);
+            ctx.strokeStyle='#888';ctx.lineWidth=1;ctx.strokeRect(dsBtnX,dsBtnY,dsBtnW,dsBtnH);
+            ctx.fillStyle='#CCC';ctx.font='bold 10px monospace';ctx.textAlign='center';
+            ctx.fillText('LIMPAR',dsBtnX+dsBtnW/2,dsBtnY+dsBtnH/2+4);ctx.textAlign='left';
+            mobileUI.touchButtons.push({x:dsBtnX,y:dsBtnY,w:dsBtnW,h:dsBtnH,fn:()=>{
+                gs.selectedUnits.forEach(u=>u.selected=false);gs.selectedUnits=[];
+                gs.selectedArmies=[];gs.selectedBuilding=null;gs.selectedBuildings=[];gs.showBuildingMenu=false;
             }});
         }
 
@@ -4282,13 +4480,13 @@ function renderUI(){
             let spr=SC[mobileUI.buildGhost.type.toLowerCase()];
             if(spr){ctx.globalAlpha=0.6;ctx.drawImage(spr,sx,sy);ctx.globalAlpha=1}
             ctx.restore();
-            // Confirm/Cancel buttons
-            let cbW=120,cbH=36,cbY=H-btmH-cbH-60;
-            ctx.fillStyle='rgba(0,180,0,0.85)';ctx.fillRect(W/2-cbW-10,cbY,cbW,cbH);
-            ctx.strokeStyle='#0F0';ctx.lineWidth=2;ctx.strokeRect(W/2-cbW-10,cbY,cbW,cbH);
-            ctx.fillStyle='#FFF';ctx.font='bold 14px monospace';ctx.textAlign='center';
-            ctx.fillText('✓ CONFIRMAR',W/2-cbW/2-10,cbY+24);ctx.textAlign='left';
-            mobileUI.touchButtons.push({x:W/2-cbW-10,y:cbY,w:cbW,h:cbH,fn:()=>{
+            // Confirm/Cancel buttons (larger for mobile)
+            let cbW=130,cbH=44,cbY=H-btmH-cbH-60;
+            ctx.fillStyle='rgba(0,180,0,0.85)';ctx.fillRect(W/2-cbW-8,cbY,cbW,cbH);
+            ctx.strokeStyle='#0F0';ctx.lineWidth=2;ctx.strokeRect(W/2-cbW-8,cbY,cbW,cbH);
+            ctx.fillStyle='#FFF';ctx.font='bold 16px monospace';ctx.textAlign='center';
+            ctx.fillText('✓ CONFIRMAR',W/2-cbW/2-8,cbY+28);ctx.textAlign='left';
+            mobileUI.touchButtons.push({x:W/2-cbW-8,y:cbY,w:cbW,h:cbH,fn:()=>{
                 let type=mobileUI.buildGhost.type;let bdef=BUILD[type];
                 let btile=w2t(mouse.wx,mouse.wy);
                 if(canBuild(btile.x,btile.y,bdef)&&canAfford(bdef.cost)){
@@ -4299,13 +4497,18 @@ function renderUI(){
                 mobileUI.buildGhost=null;gs.buildMode=null;
             }});
 
-            ctx.fillStyle='rgba(180,0,0,0.85)';ctx.fillRect(W/2+10,cbY,cbW,cbH);
-            ctx.strokeStyle='#F00';ctx.lineWidth=2;ctx.strokeRect(W/2+10,cbY,cbW,cbH);
-            ctx.fillStyle='#FFF';ctx.font='bold 14px monospace';ctx.textAlign='center';
-            ctx.fillText('✗ CANCELAR',W/2+cbW/2+10,cbY+24);ctx.textAlign='left';
-            mobileUI.touchButtons.push({x:W/2+10,y:cbY,w:cbW,h:cbH,fn:()=>{
+            ctx.fillStyle='rgba(180,0,0,0.85)';ctx.fillRect(W/2+8,cbY,cbW,cbH);
+            ctx.strokeStyle='#F00';ctx.lineWidth=2;ctx.strokeRect(W/2+8,cbY,cbW,cbH);
+            ctx.fillStyle='#FFF';ctx.font='bold 16px monospace';ctx.textAlign='center';
+            ctx.fillText('✗ CANCELAR',W/2+cbW/2+8,cbY+28);ctx.textAlign='left';
+            mobileUI.touchButtons.push({x:W/2+8,y:cbY,w:cbW,h:cbH,fn:()=>{
                 mobileUI.buildGhost=null;gs.buildMode=null;
             }});
+
+            // Building name label above buttons
+            ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(W/2-80,cbY-30,160,24);
+            ctx.fillStyle='#FFD700';ctx.font='bold 12px monospace';ctx.textAlign='center';
+            ctx.fillText(def.name,W/2,cbY-12);ctx.textAlign='left';
         }
     }
 }
