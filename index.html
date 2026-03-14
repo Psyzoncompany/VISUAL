@@ -144,7 +144,8 @@ const GUIDE_ENTRIES=[
     {title:'Reino dos Vampiros', keywords:'vampiro vampiros reino noturno morcego covil cemiterio', body:'O Reino dos Vampiros ocupa o nordeste do mapa. Vampiros ficam mais fortes a noite e mais fracos de dia. Destrua o Castelo Vampiro para conquistar o territorio.'},
     {title:'Diplomacia entre reinos', keywords:'diplomacia guerra paz alianca reino declarar neutro', body:'Pressione [N] para abrir o painel diplomatico. Voce pode declarar guerra, fazer alianca ou estabelecer paz com outros reinos. Cada reino possui territorio, exercito e economia propria.'},
     {title:'Ciclo dia e noite', keywords:'dia noite ciclo vampiro noturno sol lua', body:'O mundo alterna entre dia e noite. A noite, vampiros ficam mais fortes e rapidos. De dia, ficam mais fracos. Observe o indicador no topo da tela.'},
-    {title:'Eventos aleatorios', keywords:'evento ataque noturno invasao surpresa', body:'Eventos aleatorios podem ocorrer: ataques noturnos de vampiros, invasoes surpresa e guerras entre reinos inimigos. Fique preparado!'}
+    {title:'Eventos aleatorios', keywords:'evento ataque noturno invasao surpresa', body:'Eventos aleatorios podem ocorrer: ataques noturnos de vampiros, invasoes surpresa e guerras entre reinos inimigos. Fique preparado!'},
+    {title:'Recursos Naturais', keywords:'recurso floresta arvore regeneracao animal fuga migracao regiao', body:'Florestas sao recursos limitados. Quando serrarias cortam arvores, elas caem e geram madeira. Depois de 5 a 10 minutos, mudas crescem e viram novas arvores. Animais fogem de cacadores e migram para regioes menos cacadas. Regioes com muitos recursos explorados ficam pobres.'}
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -214,7 +215,10 @@ const gs = {
     eventTimer: 0,
     animals: [],
     animalSpawnTimer: 0,
-    animalRespawnQueue: []
+    animalRespawnQueue: [],
+    saplings: [],
+    regionResources: {},
+    animalKillsPerRegion: {}
 };
 globalThis.__gameState = gs;
 
@@ -256,7 +260,8 @@ const mobileUI = {
     panelScrollY: 0,   // scroll offset for build/recruit/army panels
     panelScrolling: false, // is user scrolling inside a panel
     panelTouchStartY: 0,  // track touch start for panel scroll
-    panelMaxScroll: 0     // max scroll offset for current panel
+    panelMaxScroll: 0,    // max scroll offset for current panel
+    joystick: {active:false, baseX:0, baseY:0, thumbX:0, thumbY:0, dx:0, dy:0}
 };
 
 // Auto-save state
@@ -1110,6 +1115,11 @@ class King extends Entity{
         if(keys['KeyS']||keys['ArrowDown'])dy=1;
         if(keys['KeyA']||keys['ArrowLeft'])dx=-1;
         if(keys['KeyD']||keys['ArrowRight'])dx=1;
+        // Mobile joystick input
+        if(isMobile && mobileUI.joystick.active){
+            dx+=mobileUI.joystick.dx;
+            dy+=mobileUI.joystick.dy;
+        }
 
         if(dx||dy){
             let len=Math.sqrt(dx*dx+dy*dy);dx/=len;dy/=len;
@@ -1415,6 +1425,8 @@ class Animal{
         this.wanderTarget=null;
         this.targetHunter=null;
         this.deathTimer=0; // show death anim briefly
+        this.fleeTimer=0;
+        this.fleeTarget=null;
     }
     takeDamage(dmg){
         this.hp-=dmg;
@@ -1461,6 +1473,53 @@ class Animal{
                 this.animState='walk';
             }
         } else {
+            // Flee behavior for non-aggressive animals
+            if(!this.aggressive && this.fleeTimer<=0){
+                let threatDist=TILE*5;
+                let threat=null;
+                if(gs.king&&gs.king.alive&&dist(this.x,this.y,gs.king.x,gs.king.y)<threatDist){
+                    threat={x:gs.king.x,y:gs.king.y};
+                }
+                if(!threat){
+                    for(let u of gs.units){
+                        if(!u.alive)continue;
+                        if(dist(this.x,this.y,u.x,u.y)<threatDist){threat={x:u.x,y:u.y};break}
+                    }
+                }
+                if(threat){
+                    let fdx=this.x-threat.x;
+                    let fdy=this.y-threat.y;
+                    let flen=Math.sqrt(fdx*fdx+fdy*fdy)||1;
+                    let fleeX=this.x+(fdx/flen)*TILE*6;
+                    let fleeY=this.y+(fdy/flen)*TILE*6;
+                    fleeX=clamp(fleeX,TILE,(MAP_W-1)*TILE);
+                    fleeY=clamp(fleeY,TILE,(MAP_H-1)*TILE);
+                    this.fleeTarget={x:fleeX,y:fleeY};
+                    this.fleeTimer=rand(3,5);
+                    this.wanderTarget=null;
+                }
+            }
+            if(this.fleeTimer>0){
+                this.fleeTimer-=dt;
+                if(this.fleeTarget){
+                    let fdx=this.fleeTarget.x-this.x;
+                    let fdy=this.fleeTarget.y-this.y;
+                    let fd=Math.sqrt(fdx*fdx+fdy*fdy);
+                    if(fd>8){
+                        let spd=this.speed*1.5;
+                        let nx=this.x+(fdx/fd)*spd*TILE*dt;
+                        let ny=this.y+(fdy/fd)*spd*TILE*dt;
+                        let t=w2t(nx,ny);
+                        if(t.x>=0&&t.x<MAP_W&&t.y>=0&&t.y<MAP_H){
+                            let ter=gs.map[t.y][t.x];
+                            if(ter!==T.MOUNTAIN&&ter!==T.WATER){this.x=nx;this.y=ny}
+                        }
+                        if(Math.abs(fdx)>Math.abs(fdy))this.dir=fdx>0?3:2;else this.dir=fdy>0?0:1;
+                        this.animState='run';
+                    } else {this.fleeTarget=null}
+                }
+                return;
+            }
             // Wander
             this.wanderTimer-=dt;
             if(this.wanderTimer<=0){
@@ -2096,7 +2155,7 @@ function initTerritories(){
     gs.territories=[];
     for(let ty=0;ty<TERR_H;ty++){
         for(let tx=0;tx<TERR_W;tx++){
-            gs.territories.push({x:tx,y:ty,owner:OWNER.NEUTRAL,control:40,resource:1+((tx+ty)%2)});
+            gs.territories.push({x:tx,y:ty,owner:OWNER.NEUTRAL,control:40,resource:1+((tx+ty)%2),resourceLevel:'medium',exploitation:0});
         }
     }
     let pcx=Math.floor(TERR_W/2),pcy=Math.floor(TERR_H/2);
@@ -2118,6 +2177,28 @@ function initTerritories(){
         let x=TERR_W-1-dx,y=dy;
         gs.territories[terrIndex(x,y)].owner=OWNER.VAMPIRES;
         gs.territories[terrIndex(x,y)].control=100;
+    }
+}
+
+function initRegionResources(){
+    for(let t of gs.territories){
+        let forestCount=0,grassCount=0,mountainCount=0,totalTiles=0;
+        for(let dy=0;dy<TERR_TILE;dy++){
+            for(let dx=0;dx<TERR_TILE;dx++){
+                let mx=t.x*TERR_TILE+dx,my=t.y*TERR_TILE+dy;
+                if(mx>=MAP_W||my>=MAP_H)continue;
+                totalTiles++;
+                let ter=gs.map[my][mx];
+                if(ter===T.FOREST) forestCount++;
+                if(ter===T.GRASS||ter===T.FIELD) grassCount++;
+                if(ter===T.MOUNTAIN) mountainCount++;
+            }
+        }
+        let richScore=forestCount*2+mountainCount*3+grassCount;
+        if(richScore>totalTiles*1.5) t.resourceLevel='high';
+        else if(richScore>totalTiles*0.8) t.resourceLevel='medium';
+        else t.resourceLevel='low';
+        t.exploitation=0;
     }
 }
 
@@ -2228,10 +2309,18 @@ function updateTerritoryEconomy(dt){
     gs.territoryTimer+=dt;
     if(gs.territoryTimer<6) return;
     gs.territoryTimer=0;
-    let playerTerr=getOwnerTerritories(OWNER.PLAYER).length;
-    gs.resources.gold+=Math.floor(playerTerr*1.2);
-    gs.resources.food+=Math.floor(playerTerr*0.8);
-    gs.resources.wood+=Math.floor(playerTerr*0.7);
+    let playerTerr=getOwnerTerritories(OWNER.PLAYER);
+    let totalTerr=playerTerr.length;
+    let goldBase=0,foodBase=0,woodBase=0;
+    for(let t of playerTerr){
+        let rlFactor=t.resourceLevel==='high'?1.5:t.resourceLevel==='low'?0.5:1.0;
+        goldBase+=1.2*rlFactor;
+        foodBase+=0.8*rlFactor;
+        woodBase+=0.7*rlFactor;
+    }
+    gs.resources.gold+=Math.floor(goldBase);
+    gs.resources.food+=Math.floor(foodBase);
+    gs.resources.wood+=Math.floor(woodBase);
 }
 
 function updateKingdomAI(dt){
@@ -2465,7 +2554,9 @@ function saveGame(){
             diplomacy:gs.diplomacy,
             dayNightTimer:gs.dayNightTimer,
             isNight:gs.isNight,
-            eventTimer:gs.eventTimer
+            eventTimer:gs.eventTimer,
+            saplings:gs.saplings,
+            animalKillsPerRegion:gs.animalKillsPerRegion
         };
         localStorage.setItem('medievalKingdom_save',JSON.stringify(data));
         addMessage('[+] Jogo salvo com sucesso!');
@@ -2497,6 +2588,8 @@ function loadGame(){
         gs.dayNightTimer=data.dayNightTimer||0;
         gs.isNight=data.isNight||false;
         gs.eventTimer=data.eventTimer||0;
+        gs.saplings=data.saplings||[];
+        gs.animalKillsPerRegion=data.animalKillsPerRegion||{};
         if(Object.keys(gs.diplomacy).length===0) initDiplomacy();
         gs.enemies=[];gs.particles=[];gs.projectiles=[];gs.explosions=[];gs.selectedUnits=[];
         gs.selectedBuilding=null;gs.selectedBuildings=[];gs.moveMode=false;gs.movingBuilding=null;gs.moveSelectionMode=false;
@@ -2606,6 +2699,10 @@ function spawnAnimal(type,cx,cy){
         // Prefer forest/grass/field far from city center
         let distFromCenter=dist(tx,ty,mapCX,mapCY);
         if((ter===T.FOREST||ter===T.GRASS||ter===T.FIELD)&&distFromCenter>12){
+            // Check if region is over-hunted
+            let tCheck=tileToTerr(tx,ty);
+            let rk=tCheck.x+'|'+tCheck.y;
+            if((gs.animalKillsPerRegion[rk]||0)>5){attempts++;continue}
             x=tx*TILE+rand(-8,8);y=ty*TILE+rand(-8,8);break;
         }
         attempts++;
@@ -2630,6 +2727,10 @@ function updateAnimals(dt){
         if(!a.alive){
             a.deathTimer-=dt;
             if(a.deathTimer<=0){
+                // Track kills per region
+                let tInfo=tileToTerr(Math.floor(a.x/TILE),Math.floor(a.y/TILE));
+                let rKey=tInfo.x+'|'+tInfo.y;
+                gs.animalKillsPerRegion[rKey]=(gs.animalKillsPerRegion[rKey]||0)+1;
                 // Queue respawn after 2-4 minutes
                 gs.animalRespawnQueue.push({type:a.type,timer:rand(120,240)});
                 gs.animals.splice(i,1);
@@ -2649,6 +2750,20 @@ function updateAnimals(dt){
     if(gs.animalSpawnTimer>=60&&gs.animals.filter(a=>a.alive).length<30){
         gs.animalSpawnTimer=0;
         spawnAnimal(ANIMAL_TYPES[randInt(0,ANIMAL_TYPES.length-1)]);
+    }
+}
+
+function updateSaplings(dt){
+    for(let i=gs.saplings.length-1;i>=0;i--){
+        let s=gs.saplings[i];
+        s.age+=dt;
+        if(s.age>=s.growTime){
+            // Sapling becomes a full tree
+            gs.map[s.y][s.x]=T.FOREST;
+            gs.treeNodes[nodeKey(s.x,s.y)]={x:s.x,y:s.y,hp:10,variant:randInt(0,5)};
+            gs.saplings.splice(i,1);
+            addParticle((s.x+0.5)*TILE,(s.y+0.3)*TILE,'🌱 Arvore cresceu','#4CAF50');
+        }
     }
 }
 
@@ -2678,6 +2793,7 @@ function updateResources(dt){
                     if(tNode.hp<=0){
                         delete gs.treeNodes[nodeKey(tNode.x,tNode.y)];
                         gs.map[tNode.y][tNode.x]=T.GRASS;
+                        gs.saplings.push({x:tNode.x,y:tNode.y,age:0,growTime:rand(300,600)});
                 addParticle((tNode.x+0.5)*TILE,(tNode.y+0.3)*TILE,'Arvore caiu','#8BC34A');
                     }
                 }
@@ -2709,6 +2825,13 @@ function updateResources(dt){
                     let col=res==='gold'?'#FFD700':res==='food'?'#2ecc71':res==='stone'?'#B0BEC5':'#DEB887';
                     addParticle(bx,by,'+'+amount+' '+res,col);
                 }
+            }
+            // Track exploitation per territory
+            let bTerr=getTerritoryByTile(b.x,b.y);
+            if(bTerr){
+                bTerr.exploitation=(bTerr.exploitation||0)+1;
+                if(bTerr.exploitation>50&&bTerr.resourceLevel==='high') bTerr.resourceLevel='medium';
+                else if(bTerr.exploitation>100&&bTerr.resourceLevel==='medium') bTerr.resourceLevel='low';
             }
         }
     }
@@ -3078,6 +3201,20 @@ canvas.addEventListener('touchstart', (e) => {
         mobileUI.panelScrolling = isTouchInMobilePanel(t.clientX, t.clientY);
         mobileUI.panelTouchStartY = t.clientY;
 
+        // Joystick activation (bottom-left of screen)
+        if(isMobile && gs.phase==='playing' && !gs.paused && t.clientX<W*0.35 && t.clientY>H*0.5
+           && !mobileUI.showBuildPanel && !mobileUI.showRecruitPanel && !mobileUI.showArmyPanel
+           && !gs.showDiplomacy && !gs.showGuide){
+            mobileUI.joystick.active=true;
+            mobileUI.joystick.baseX=t.clientX;
+            mobileUI.joystick.baseY=t.clientY;
+            mobileUI.joystick.thumbX=t.clientX;
+            mobileUI.joystick.thumbY=t.clientY;
+            mobileUI.joystick.dx=0;
+            mobileUI.joystick.dy=0;
+            return;
+        }
+
         // Long press detection (simulates right-click for move/attack)
         touch.longPressTimer = setTimeout(() => {
             if (!touch.moved && touch.active) {
@@ -3160,6 +3297,20 @@ canvas.addEventListener('touchmove', (e) => {
             return;
         }
 
+        // Mobile joystick movement
+        if(mobileUI.joystick.active){
+            let jdx=t.clientX-mobileUI.joystick.baseX;
+            let jdy=t.clientY-mobileUI.joystick.baseY;
+            let jdist=Math.sqrt(jdx*jdx+jdy*jdy);
+            let maxR=50;
+            if(jdist>maxR){jdx=(jdx/jdist)*maxR;jdy=(jdy/jdist)*maxR}
+            mobileUI.joystick.thumbX=mobileUI.joystick.baseX+jdx;
+            mobileUI.joystick.thumbY=mobileUI.joystick.baseY+jdy;
+            mobileUI.joystick.dx=jdx/maxR;
+            mobileUI.joystick.dy=jdy/maxR;
+            return;
+        }
+
         if (touch.moved && !touch.isLongPress) {
             // If no units selected and no build mode → pan camera
             if (!gs.buildMode && !selBox && gs.selectedUnits.length === 0) {
@@ -3196,6 +3347,11 @@ canvas.addEventListener('touchend', (e) => {
     // Reset panel scrolling state
     let wasScrollingPanel = mobileUI.panelScrolling;
     mobileUI.panelScrolling = false;
+
+    // Deactivate joystick on touch end
+    mobileUI.joystick.active=false;
+    mobileUI.joystick.dx=0;
+    mobileUI.joystick.dy=0;
 
     if (touch.isPinching) {
         if (e.touches.length < 2) touch.isPinching = false;
@@ -3290,6 +3446,12 @@ canvas.addEventListener('touchend', (e) => {
             gs.selectedBuildings = [clickedBuilding]; gs.selectedArmies = [];
             gs.showBuildMenu = false; gs.showRecruitMenu = false;
             if (clickedBuilding.type === 'BARRACKS') gs.showRecruitMenu = true;
+            if(isMobile && clickedBuilding.type === 'BARRACKS'){
+                mobileUI.showRecruitPanel=true;
+                mobileUI.showBuildPanel=false;
+                mobileUI.showArmyPanel=false;
+                mobileUI.panelScrollY=0;
+            }
             return;
         }
 
@@ -3362,8 +3524,30 @@ function renderTerrain(){
 
             let terr=getTerritoryByTile(tx,ty);
             if(terr){
+                let rlAlpha=terr.resourceLevel==='high'?1.0:terr.resourceLevel==='low'?0.6:0.8;
+                ctx.globalAlpha=rlAlpha;
                 ctx.fillStyle=OWNER_COLOR[terr.owner]||OWNER_COLOR[OWNER.NEUTRAL];
                 ctx.fillRect(dx,dy,TILE,TILE);
+                ctx.globalAlpha=1;
+            }
+
+            // Draw territory flags
+            if(terr && terr.owner!==OWNER.NEUTRAL){
+                let flagTX=Math.floor(terr.x*TERR_TILE+TERR_TILE/2);
+                let flagTY=Math.floor(terr.y*TERR_TILE+TERR_TILE/2);
+                if(tx===flagTX && ty===flagTY){
+                    let fx=dx+TILE/2,fy=dy;
+                    ctx.fillStyle='#8B7355';
+                    ctx.fillRect(fx-1,fy,2,TILE);
+                    let flagColor=terr.owner===OWNER.PLAYER?'#4488FF':terr.owner===OWNER.ENEMY_A?'#FF4444':terr.owner===OWNER.ENEMY_B?'#CC66EE':'#CC0000';
+                    ctx.fillStyle=flagColor;
+                    let wave=Math.sin(gs.gameTime*3+terr.x+terr.y)*2;
+                    ctx.beginPath();
+                    ctx.moveTo(fx+1,fy+2);
+                    ctx.lineTo(fx+12+wave,fy+6);
+                    ctx.lineTo(fx+1,fy+12);
+                    ctx.fill();
+                }
             }
 
             // Detalhes de terreno
@@ -3388,6 +3572,22 @@ function renderTerrain(){
                 if(det<2){ctx.fillStyle='#5aaa4f';ctx.fillRect(dx+(hash(tx,ty)%20),dy+(hash(ty,tx)%20),3,5)}
                 if(det===3){ctx.fillStyle='#e8d44d';ctx.fillRect(dx+10,dy+12,3,3)}
                 if(det===4){ctx.fillStyle='#C66';ctx.fillRect(dx+16,dy+8,3,3)} // flor
+                // Draw tree stumps/saplings
+                let sapling=gs.saplings.find(s=>s.x===tx&&s.y===ty);
+                if(sapling){
+                    if(sapling.age<sapling.growTime*0.5){
+                        ctx.fillStyle='#6B4226';
+                        ctx.fillRect(dx+12,dy+20,8,6);
+                        ctx.fillRect(dx+10,dy+24,12,4);
+                    } else {
+                        ctx.fillStyle='#2d5a1e';
+                        ctx.fillRect(dx+14,dy+10,4,14);
+                        ctx.fillStyle='#4a8c3f';
+                        ctx.beginPath();
+                        ctx.arc(dx+16,dy+8,6,0,Math.PI*2);
+                        ctx.fill();
+                    }
+                }
             }
             if(ter===T.WATER){
                 let w=Math.sin(gs.gameTime*2+tx*0.5+ty*0.3)*3;
@@ -4466,6 +4666,24 @@ function renderUI(){
             }});
         }
 
+        // ─── Mobile Joystick ───
+        if(mobileUI.joystick.active){
+            ctx.globalAlpha=0.4;
+            ctx.fillStyle='#333';
+            ctx.beginPath();
+            ctx.arc(mobileUI.joystick.baseX,mobileUI.joystick.baseY,50,0,Math.PI*2);
+            ctx.fill();
+            ctx.strokeStyle='#888';
+            ctx.lineWidth=2;
+            ctx.stroke();
+            ctx.globalAlpha=0.7;
+            ctx.fillStyle='#FFF';
+            ctx.beginPath();
+            ctx.arc(mobileUI.joystick.thumbX,mobileUI.joystick.thumbY,20,0,Math.PI*2);
+            ctx.fill();
+            ctx.globalAlpha=1;
+        }
+
         // ─── Ghost Building Preview (mobile) ───
         if(mobileUI.buildGhost){
             let def=BUILD[mobileUI.buildGhost.type];
@@ -4678,6 +4896,7 @@ function gameLoop(timestamp){
         updateDayNight(dt);
         updateRandomEvents(dt);
         updateAnimals(dt);
+        updateSaplings(dt);
 
         // Efeitos
         updateEffects(dt);
@@ -4770,6 +4989,7 @@ function init(){
     gs.map=generateMap();
     initResourceNodes();
     initTerritories();
+    initRegionResources();
     initKingdoms();
     initDiplomacy();
     initRuins();
