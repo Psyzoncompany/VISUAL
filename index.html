@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -99,9 +99,10 @@ const UDEF = {
     SWORDSMAN:{id:'SWORDSMAN',name:'Espadachim',cost:{gold:40,food:20,pop:1}, hp:80, atk:12,def:8, spd:1.5,range:1.2,icon:'swords'},
     ARCHER:   {id:'ARCHER',   name:'Arqueiro',  cost:{gold:50,food:15,pop:1}, hp:50, atk:15,def:4, spd:1.8,range:5,  icon:'bow'},
     SPEARMAN: {id:'SPEARMAN', name:'Lanceiro',  cost:{gold:35,food:25,pop:1}, hp:70, atk:10,def:10,spd:1.3,range:1.5,icon:'spear'},
-    HUNTER:   {id:'HUNTER',   name:'Caçador',   cost:{gold:15,food:10,pop:1}, hp:60, atk:12,def:3, spd:2.0,range:4,  icon:'bow'}
+    HUNTER:   {id:'HUNTER',   name:'Caçador',   cost:{gold:15,food:10,pop:1}, hp:60, atk:12,def:3, spd:2.0,range:4,  icon:'bow'},
+    GENERAL:  {id:'GENERAL',  name:'General',   cost:{gold:200,food:50,pop:2},hp:150,atk:16,def:12,spd:1.6,range:1.5,icon:'crown',maxSquad:20}
 };
-const UNIT_LIST = ['SWORDSMAN','ARCHER','SPEARMAN','HUNTER'];
+const UNIT_LIST = ['SWORDSMAN','ARCHER','SPEARMAN','HUNTER','GENERAL'];
 const ENEMY_SPRITE_MAP = {soldier:'enemy',bandit:'bandit',creature:'creature'};
 
 // Territorios e reinos
@@ -110,12 +111,52 @@ const TERR_W = Math.ceil(MAP_W / TERR_TILE);
 const TERR_H = Math.ceil(MAP_H / TERR_TILE);
 const OWNER = {NEUTRAL:0, PLAYER:1, ENEMY_A:2, ENEMY_B:3, VAMPIRES:4};
 const OWNER_COLOR = {
-    [OWNER.NEUTRAL]:'rgba(180,180,180,0.14)',
-    [OWNER.PLAYER]:'rgba(70,170,255,0.16)',
-    [OWNER.ENEMY_A]:'rgba(240,90,90,0.16)',
-    [OWNER.ENEMY_B]:'rgba(220,120,240,0.16)',
+    [OWNER.NEUTRAL]:'rgba(180,180,180,0.10)',
+    [OWNER.PLAYER]:'rgba(70,170,255,0.18)',
+    [OWNER.ENEMY_A]:'rgba(240,90,90,0.18)',
+    [OWNER.ENEMY_B]:'rgba(180,100,240,0.18)',
     [OWNER.VAMPIRES]:'rgba(140,0,0,0.22)'
 };
+const OWNER_BORDER_COLOR = {
+    [OWNER.NEUTRAL]:'rgba(180,180,180,0.25)',
+    [OWNER.PLAYER]:'rgba(70,170,255,0.55)',
+    [OWNER.ENEMY_A]:'rgba(240,90,90,0.55)',
+    [OWNER.ENEMY_B]:'rgba(180,100,240,0.55)',
+    [OWNER.VAMPIRES]:'rgba(180,0,0,0.55)'
+};
+const OWNER_WALL_COLOR = {
+    [OWNER.PLAYER]:{base:'#808080',light:'#909090',dark:'#606060',detail:'#A0A0A0',top:'#6A6A6A'},
+    [OWNER.ENEMY_A]:{base:'#8B5A3A',light:'#9B6A4A',dark:'#6B3A1A',detail:'#AB7A5A',top:'#5B3A1A'},
+    [OWNER.ENEMY_B]:{base:'#6A5A8A',light:'#7A6A9A',dark:'#4A3A6A',detail:'#8A7AAA',top:'#4A3A6A'},
+    [OWNER.VAMPIRES]:{base:'#3A1A3A',light:'#4A2A4A',dark:'#2A0A2A',detail:'#5A3A5A',top:'#2A0A2A'}
+};
+const KILLS_TO_CONQUER = 5;
+
+// ═══════════════════════════════════════════════════════════
+// TIPOS DE REGIÃO
+// ═══════════════════════════════════════════════════════════
+const REGION = {
+    PLAIN:0, FOREST:1, MOUNTAIN:2, RIVER:3, VILLAGE:4, CITY:5
+};
+const REGION_DEF = {
+    [REGION.PLAIN]:   {name:'Planície',  icon:'🌿', color:'rgba(120,180,80,0.12)', defBonus:0, foodProd:2, woodProd:0, goldProd:1, popProd:0},
+    [REGION.FOREST]:  {name:'Floresta',  icon:'🌲', color:'rgba(40,100,30,0.15)',  defBonus:0.15, foodProd:1, woodProd:5, goldProd:0, popProd:0},
+    [REGION.MOUNTAIN]:{name:'Montanha',  icon:'⛰️', color:'rgba(120,120,120,0.12)',defBonus:0.3, foodProd:0, woodProd:0, goldProd:2, popProd:0},
+    [REGION.RIVER]:   {name:'Rio',       icon:'🏞️', color:'rgba(40,100,200,0.10)', defBonus:0.1, foodProd:3, woodProd:0, goldProd:1, popProd:0},
+    [REGION.VILLAGE]: {name:'Vilarejo',  icon:'🏘️', color:'rgba(180,160,100,0.12)',defBonus:0, foodProd:2, woodProd:1, goldProd:2, popProd:3},
+    [REGION.CITY]:    {name:'Cidade',    icon:'🏰', color:'rgba(200,180,60,0.15)', defBonus:0.2, foodProd:1, woodProd:0, goldProd:6, popProd:5}
+};
+
+// ═══════════════════════════════════════════════════════════
+// CONSTANTES DO GENERAL
+// ═══════════════════════════════════════════════════════════
+const GENERAL_MAX_SQUAD = 20;
+const GENERAL_AURA_RANGE = 5; // tiles
+const GENERAL_SPD_BONUS = 0.10;
+const GENERAL_ATK_BONUS = 0.10;
+const GENERAL_MORAL_BONUS = 0.15;
+const GENERAL_RETREAT_THRESHOLD = 0.5; // recua se perder 50% do esquadrão
+
 const OWNER_NAMES = {
     [OWNER.PLAYER]:'Reino Humano',
     [OWNER.ENEMY_A]:'Reino dos Bárbaros',
@@ -152,7 +193,11 @@ const ANIM_DEF={
 const ANIMAL_TYPES=['cervo','javali','coelho','lobo'];
 const ANIMAL_SPRITE_PATH='sprites/animais/PNG/Without_shadow';
 const DAY_CYCLE=180;
-const DIPLO={WAR:'war',NEUTRAL:'neutral',PEACE:'peace',ALLIANCE:'alliance'};
+const DIPLO={WAR:'war',NEUTRAL:'neutral',PEACE:'peace',ALLIANCE:'alliance',NONAGGRESSION:'nonaggression'};
+// Relação numérica: -100 (guerra total) a +100 (aliança forte)
+const RELATION_THRESHOLDS={ALLIANCE:70,PEACE:30,NEUTRAL:-20,HOSTILE:-50,WAR:-80};
+// Eventos diplomáticos possíveis
+const DIPLO_EVENT_TYPES=['propose_alliance','request_help','request_resources','threaten_war','trade_offer','betray_alliance'];
 
 // ═══════════════════════════════════════════════════════════
 // PERSONALIDADE DOS REINOS
@@ -335,6 +380,12 @@ const gs = {
     isNight: false,
     showDiplomacy: false,
     diplomacy: {},
+    relations: {},           // Numeric relations {key: -100..100}
+    tradeRoutes: [],         // Active trade routes between kingdoms
+    diploEvents: [],         // Pending diplomatic events for player
+    diploEventTimer: 0,      // Timer for diplomatic events
+    diploAITimer: 0,         // Timer for AI diplomatic decisions
+    nonAggressionPacts: {},  // {key: remainingTime}
     eventTimer: 0,
     animals: [],
     animalSpawnTimer: 0,
@@ -349,7 +400,10 @@ const gs = {
     heroes: {},          // {ownerId: heroObj}
     kingPresenceActive: false,
     dynamicEvent: null,  // current active event {id, timer, ...}
-    dynamicEventCooldown: 0
+    dynamicEventCooldown: 0,
+    // ─── General & Economy Systems ───
+    generals: [],          // General units (player + AI)
+    moralTimer: 0          // moral update timer
 };
 globalThis.__gameState = gs;
 
@@ -756,34 +810,87 @@ function initSprites(){
     });
 
     // ─── CONSTRUÇÕES ───
-    // Castelo (3x3)
-    SC.castle=mkCanvas(TILE*3,TILE*3,(c)=>{
-        // Base muros
-        px(c,4,8,40,30,'#909090');px(c,5,9,38,28,'#A0A0A0');
-        // Torres nos cantos
-        px(c,2,6,5,6,'#808080');px(c,41,6,5,6,'#808080');
-        px(c,2,30,5,6,'#808080');px(c,41,30,5,6,'#808080');
-        // Ameias
-        px(c,2,5,2,2,'#606060');px(c,5,5,2,2,'#606060');
-        px(c,41,5,2,2,'#606060');px(c,44,5,2,2,'#606060');
-        // Torre principal
-        px(c,17,2,14,12,'#888');px(c,18,3,12,10,'#999');
-        // Teto torre
-        px(c,16,0,16,3,'#654321');px(c,18,0,12,1,'#8B5A2B');
-        // Portão
-        px(c,20,28,8,10,'#4A3628');px(c,21,27,6,1,'#606060');
-        // Grade do portão
-        for(let i=0;i<3;i++)px(c,21+i*2,28,1,8,'#333');
-        // Bandeira
-        px(c,24,0,1,4,'#8B6914');px(c,25,0,4,2,'#CC0000');px(c,25,2,3,1,'#CC0000');
-        // Janelas
-        px(c,20,6,2,3,'#2F1F0F');px(c,26,6,2,3,'#2F1F0F');
-        // Estandarte
-        px(c,10,12,3,5,'#800000');px(c,35,12,3,5,'#800000');
-        px(c,11,13,1,3,'#FFD700');px(c,36,13,1,3,'#FFD700');
-        // Detalhes muros
-        for(let y=10;y<36;y+=4)for(let x=6;x<42;x+=5)px(c,x,y,3,2,'#B0B0B0');
-    });
+    // Castelo (3x3) - Sprite 64x64
+    SC.castle=(()=>{
+        const castleColors={1:'#505058',2:'#909098',3:'#707078',5:'#7B4B2B',6:'#C4A060',7:'#9C7838',8:'#2A1A0A',9:'#CC0000',10:'#8B7355',11:'#6B5335'};
+        const castleSprite=[
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,2,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,2,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,5,5,5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,5,5,5,5,5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,5,5,5,5,5,5,5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,5,5,5,5,5,5,5,5,5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,5,5,5,5,5,5,5,5,5,5,5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,1,9,0,0,0,0,0,0,0,0,0,1,2,3,3,2,2,2,1,8,8,8,1,2,2,2,2,1,8,8,8,1,2,2,2,3,3,2,1,0,0,0,0,0,0,0,0,0,9,1,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,1,9,9,0,0,0,0,0,0,0,0,1,2,3,3,2,2,2,1,8,8,8,1,2,2,2,2,1,8,8,8,1,2,2,2,3,3,2,1,0,0,0,0,0,0,0,0,9,9,1,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,1,9,9,9,0,0,0,0,0,0,0,1,2,3,3,2,2,2,1,8,8,8,1,2,2,2,2,1,8,8,8,1,2,2,2,3,3,2,1,0,0,0,0,0,0,0,9,9,9,1,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,2,3,3,2,2,2,1,1,1,1,1,2,2,2,2,1,1,1,1,1,2,2,2,3,3,2,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,1,2,1,0,0,0,0,0,0,0,0,0,1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1,0,0,0,0,0,0,0,0,0,1,2,1,0,0,0,0,0,0],
+[0,0,0,0,0,1,2,2,2,1,0,0,0,0,0,0,0,0,1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1,0,0,0,0,0,0,0,0,1,2,2,2,1,0,0,0,0,0],
+[0,0,0,0,1,5,5,5,5,5,1,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,1,5,5,5,5,5,1,0,0,0,0],
+[0,0,0,1,5,5,5,5,5,5,5,1,0,0,0,0,0,0,1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1,0,0,0,0,0,0,1,5,5,5,5,5,5,5,1,0,0,0],
+[0,0,1,5,5,5,5,5,5,5,5,5,1,0,0,0,0,0,1,2,3,3,2,2,2,1,8,8,8,1,2,2,2,2,1,8,8,8,1,2,2,2,3,3,2,1,0,0,0,0,0,1,5,5,5,5,5,5,5,5,5,1,0,0],
+[0,1,5,5,5,5,5,5,5,5,5,5,5,1,0,0,0,0,1,2,3,3,2,2,2,1,8,8,8,1,2,2,2,2,1,8,8,8,1,2,2,2,3,3,2,1,0,0,0,0,1,5,5,5,5,5,5,5,5,5,5,5,1,0],
+[1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,1,2,3,3,2,2,2,1,8,8,8,1,2,2,2,2,1,8,8,8,1,2,2,2,3,3,2,1,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,1,0,0,0,0,1,2,3,3,2,2,2,1,1,1,1,1,2,2,2,2,1,1,1,1,1,2,2,2,3,3,2,1,0,0,0,0,1,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,1,0,0,0,0,1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1,0,0,0,0,1,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,1,0,0,0,0,1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1,0,0,0,0,1,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,1,8,8,8,1,2,2,2,2,1,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,1,2,2,2,2,1,8,8,8,1,3,3,2,1],
+[1,2,3,3,1,8,8,8,1,2,2,2,2,1,0,0,0,0,1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1,0,0,0,0,1,2,2,2,2,1,8,8,8,1,3,3,2,1],
+[1,2,3,3,1,8,8,8,1,2,2,2,2,1,0,0,0,0,1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1,0,0,0,0,1,2,2,2,2,1,8,8,8,1,3,3,2,1],
+[1,2,3,3,1,1,1,1,1,2,2,2,2,1,0,0,0,0,1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1,0,0,0,0,1,2,2,2,2,1,1,1,1,1,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,1,0,0,0,0,1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1,0,0,0,0,1,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,1,0,0,1,0,1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1,0,1,0,0,1,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,1,1,1,1,1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1,1,1,1,1,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,3,2,2,2,2,2,2,2,2,2,2,2,2,2,3,2,2,2,2,2,2,2,2,3,2,2,2,2,2,2,2,2,2,2,2,2,2,3,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,2,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,2,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,3,2,2,2,2,2,2,2,2,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,2,2,2,2,2,2,2,2,3,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,1,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,1,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,1,6,7,6,7,6,7,6,7,6,7,6,7,6,7,7,6,7,6,7,6,7,6,7,6,7,6,7,6,1,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,1,8,8,8,1,2,2,2,2,2,2,2,2,1,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,1,2,2,2,2,2,2,2,2,1,8,8,8,1,3,3,2,1],
+[1,2,3,3,1,8,8,8,1,2,2,2,2,2,2,2,2,1,6,7,6,7,6,7,6,7,6,7,6,7,6,7,7,6,7,6,7,6,7,6,7,6,7,6,7,6,1,2,2,2,2,2,2,2,2,1,8,8,8,1,3,3,2,1],
+[1,2,3,3,1,8,8,8,1,2,2,2,2,2,2,2,2,1,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,1,2,2,2,2,2,2,2,2,1,8,8,8,1,3,3,2,1],
+[1,2,3,3,1,1,1,1,1,2,2,2,2,2,2,2,2,1,6,7,6,7,6,7,6,7,6,7,6,7,6,7,7,6,7,6,7,6,7,6,7,6,7,6,7,6,1,2,2,2,2,2,2,2,2,1,1,1,1,1,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,1,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,1,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,1,6,7,6,7,6,7,6,7,6,7,6,7,6,7,7,6,7,6,7,6,7,6,7,6,7,6,7,6,1,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,1,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,1,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,2,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,1,6,7,6,7,6,7,6,7,6,7,6,7,6,7,7,6,7,6,7,6,7,6,7,6,7,6,7,6,1,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2,1],
+[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+[10,10,10,11,10,10,10,10,10,10,10,10,11,10,10,10,10,10,10,11,10,10,10,10,10,10,10,10,10,11,10,10,10,10,11,10,10,10,10,10,10,10,10,10,11,10,10,10,10,10,10,11,10,10,10,10,10,10,10,10,11,10,10,10],
+[10,10,10,10,10,10,11,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,11,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,11,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,11,10,10,10,10,10,10],
+[10,11,10,10,10,10,10,10,10,10,10,11,10,10,10,10,11,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,11,10,10,10,10,11,10,10,10,10,10,10,10,10,10,11,10],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+        ];
+        const cw=TILE*3,ch=TILE*3;
+        const tmp=document.createElement('canvas');tmp.width=64;tmp.height=64;
+        const tc=tmp.getContext('2d');
+        for(let y=0;y<64;y++){for(let x=0;x<64;x++){
+            const v=castleSprite[y][x];
+            if(v!==0){tc.fillStyle=castleColors[v];tc.fillRect(x,y,1,1);}
+        }}
+        const cv=document.createElement('canvas');cv.width=cw;cv.height=ch;
+        const ctx=cv.getContext('2d');ctx.imageSmoothingEnabled=false;
+        ctx.drawImage(tmp,0,0,cw,ch);
+        return cv;
+    })();
 
     // Casa
     SC.house=mkCanvas(TILE,TILE,(c)=>{
@@ -1154,35 +1261,54 @@ function initSprites(){
 // GERAÇÃO DO MAPA
 // ═══════════════════════════════════════════════════════════
 function generateMap(){
-    let noise=[], moist=[];
-    for(let y=0;y<MAP_H;y++){
-        noise[y]=[];moist[y]=[];
-        for(let x=0;x<MAP_W;x++){
-            noise[y][x]=srand(x*7+13,y*11+7);
-            moist[y][x]=srand(x*3+97,y*5+53);
+    // Geração procedural otimizada para mapas grandes (500x500)
+    // Usa amostragem em grade menor + interpolação bilinear para performance
+    let SAMPLE=8; // amostra a cada 8 tiles
+    let SW=Math.ceil(MAP_W/SAMPLE)+1,SH=Math.ceil(MAP_H/SAMPLE)+1;
+    let sNoise=[],sMoist=[];
+    for(let sy=0;sy<SH;sy++){
+        sNoise[sy]=[];sMoist[sy]=[];
+        for(let sx=0;sx<SW;sx++){
+            sNoise[sy][sx]=srand(sx*7+13,sy*11+7);
+            sMoist[sy][sx]=srand(sx*3+97,sy*5+53);
         }
     }
-    for(let iter=0;iter<5;iter++){
+    // Suavizar amostras (2 iterações, kernel 3x3)
+    for(let iter=0;iter<2;iter++){
         let nn=[],nm=[];
-        for(let y=0;y<MAP_H;y++){
-            nn[y]=[];nm[y]=[];
-            for(let x=0;x<MAP_W;x++){
+        for(let sy=0;sy<SH;sy++){
+            nn[sy]=[];nm[sy]=[];
+            for(let sx=0;sx<SW;sx++){
                 let s=0,ms=0,c=0;
-                for(let dy=-2;dy<=2;dy++){for(let dx=-2;dx<=2;dx++){
-                    let ny=clamp(y+dy,0,MAP_H-1),nx=clamp(x+dx,0,MAP_W-1);
-                    s+=noise[ny][nx];ms+=moist[ny][nx];c++;
-                }}
-                nn[y][x]=s/c;nm[y][x]=ms/c;
+                for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+                    let ny=clamp(sy+dy,0,SH-1),nx=clamp(sx+dx,0,SW-1);
+                    s+=sNoise[ny][nx];ms+=sMoist[ny][nx];c++;
+                }
+                nn[sy][sx]=s/c;nm[sy][sx]=ms/c;
             }
         }
-        noise=nn;moist=nm;
+        sNoise=nn;sMoist=nm;
     }
-
+    // Interpolação bilinear para o mapa completo
+    function bilerp(grid,x,y){
+        let gx=x/SAMPLE,gy=y/SAMPLE;
+        let ix=Math.floor(gx),iy=Math.floor(gy);
+        let fx=gx-ix,fy=gy-iy;
+        let ix1=Math.min(ix+1,SW-1),iy1=Math.min(iy+1,SH-1);
+        ix=Math.min(ix,SW-1);iy=Math.min(iy,SH-1);
+        let a=grid[iy][ix],b=grid[iy][ix1];
+        let c=grid[iy1][ix],d=grid[iy1][ix1];
+        return a*(1-fx)*(1-fy)+b*fx*(1-fy)+c*(1-fx)*fy+d*fx*fy;
+    }
     let map=[];
     for(let y=0;y<MAP_H;y++){
-        map[y]=[];
+        map[y]=new Uint8Array(MAP_W);
         for(let x=0;x<MAP_W;x++){
-            let h=noise[y][x],m=moist[y][x];
+            let h=bilerp(sNoise,x,y);
+            let m=bilerp(sMoist,x,y);
+            // Adicionar micro-ruído para variedade local
+            let micro=((hash(x,y)%100)/100)*0.08-0.04;
+            h+=micro;
             if(h<0.35) map[y][x]=T.WATER;
             else if(h<0.40) map[y][x]=T.SAND;
             else if(h<0.70){
@@ -1195,17 +1321,46 @@ function generateMap(){
         }
     }
 
-    // Limpar área inicial (centro)
     let cx=Math.floor(MAP_W/2),cy=Math.floor(MAP_H/2);
-    for(let dy=-8;dy<=8;dy++)for(let dx=-8;dx<=8;dx++){
+
+    // Gerar múltiplos rios (proporcional ao mapa)
+    let numRivers=Math.floor(MAP_W/60);
+    for(let r=0;r<numRivers;r++){
+        let rx,ry,horizontal=r%2===1;
+        if(horizontal){
+            ry=randInt(30,MAP_H-30);rx=0;
+            while(rx<MAP_W){
+                let w=1+(hash(rx,ry*r)%2);
+                for(let dw=-w;dw<=w;dw++){
+                    let ny=ry+dw;
+                    if(ny>=0&&ny<MAP_H) map[ny][rx]=T.WATER;
+                }
+                rx++;ry+=randInt(-1,1);ry=clamp(ry,2,MAP_H-3);
+            }
+        } else {
+            rx=randInt(30,MAP_W-30);ry=0;
+            while(ry<MAP_H){
+                let w=1+(hash(rx*r,ry)%2);
+                for(let dw=-w;dw<=w;dw++){
+                    let nx=rx+dw;
+                    if(nx>=0&&nx<MAP_W) map[ry][nx]=T.WATER;
+                }
+                ry++;rx+=randInt(-1,1);rx=clamp(rx,2,MAP_W-3);
+            }
+        }
+    }
+
+    // Limpar área inicial (centro) - maior para mapa grande
+    for(let dy=-12;dy<=12;dy++)for(let dx=-12;dx<=12;dx++){
         let ny=cy+dy,nx=cx+dx;
         if(ny>=0&&ny<MAP_H&&nx>=0&&nx<MAP_W) map[ny][nx]=T.GRASS;
     }
 
-    // Estradas a partir do centro
+    // Estradas a partir do centro (mais longas)
+    let roadLen=Math.floor(MAP_W*0.35);
     [[1,0],[-1,0],[0,1],[0,-1]].forEach(([ddx,ddy])=>{
         let rx=cx,ry=cy;
-        for(let i=0;i<40;i++){
+        for(let i=0;i<roadLen;i++){
             rx+=ddx;ry+=ddy;
             if(Math.random()>0.65){rx+=(ddy!==0?randInt(-1,1):0);ry+=(ddx!==0?randInt(-1,1):0)}
             rx=clamp(rx,1,MAP_W-2);ry=clamp(ry,1,MAP_H-2);
@@ -1216,40 +1371,45 @@ function generateMap(){
         }
     });
 
-    // Rios
-    for(let r=0;r<2;r++){
-        let rx=randInt(10,MAP_W-10),ry=0;
-        while(ry<MAP_H){
-            for(let dx=-1;dx<=1;dx++){
-                let nx=rx+dx;
-                if(nx>=0&&nx<MAP_W) map[ry][nx]=T.WATER;
+    // Estradas secundárias conectando reinos
+    let kingdomCenters=[[20,20],[MAP_W-21,MAP_H-21],[MAP_W-21,20],[cx,cy]];
+    for(let i=0;i<kingdomCenters.length;i++){
+        for(let j=i+1;j<kingdomCenters.length;j++){
+            let [ax,ay]=kingdomCenters[i],[bx,by]=kingdomCenters[j];
+            let px=ax,py=ay;
+            let steps=Math.abs(bx-ax)+Math.abs(by-ay);
+            for(let s=0;s<steps;s++){
+                if(Math.abs(bx-px)>Math.abs(by-py)) px+=bx>px?1:-1;
+                else py+=by>py?1:-1;
+                if(Math.random()>0.7){px+=randInt(-1,1);py+=randInt(-1,1)}
+                px=clamp(px,1,MAP_W-2);py=clamp(py,1,MAP_H-2);
+                if(map[py][px]!==T.WATER&&map[py][px]!==T.MOUNTAIN) map[py][px]=T.ROAD;
             }
-            ry++;rx+=randInt(-1,1);rx=clamp(rx,2,MAP_W-3);
         }
     }
 
     // Re-limpar centro após rios
-    for(let dy=-6;dy<=6;dy++)for(let dx=-6;dx<=6;dx++){
+    for(let dy=-10;dy<=10;dy++)for(let dx=-10;dx<=10;dx++){
         let ny=cy+dy,nx=cx+dx;
         if(ny>=0&&ny<MAP_H&&nx>=0&&nx<MAP_W) map[ny][nx]=T.GRASS;
     }
 
-    // Limpar cantos dos reinos IA
-    // Bárbaros (NW)
-    for(let dy=-5;dy<=5;dy++)for(let dx=-5;dx<=5;dx++){
-        let ny=8+dy,nx=8+dx;
-        if(ny>=0&&ny<MAP_H&&nx>=0&&nx<MAP_W&&map[ny][nx]!==T.WATER) map[ny][nx]=T.GRASS;
+    // Limpar bases dos reinos IA (posições ajustadas para mapa 500x500)
+    // Bárbaros (NW) - base em (20,20)
+    for(let dy=-8;dy<=8;dy++)for(let dx=-8;dx<=8;dx++){
+        let ny=20+dy,nx=20+dx;
+        if(ny>=0&&ny<MAP_H&&nx>=0&&nx<MAP_W) map[ny][nx]=T.GRASS;
     }
-    // Magos (SE)
-    for(let dy=-5;dy<=5;dy++)for(let dx=-5;dx<=5;dx++){
-        let ny=MAP_H-9+dy,nx=MAP_W-9+dx;
-        if(ny>=0&&ny<MAP_H&&nx>=0&&nx<MAP_W&&map[ny][nx]!==T.WATER) map[ny][nx]=T.GRASS;
+    // Magos (SE) - base em (MAP_W-21,MAP_H-21)
+    for(let dy=-8;dy<=8;dy++)for(let dx=-8;dx<=8;dx++){
+        let ny=MAP_H-21+dy,nx=MAP_W-21+dx;
+        if(ny>=0&&ny<MAP_H&&nx>=0&&nx<MAP_W) map[ny][nx]=T.GRASS;
     }
-    // Vampiros (NE) - terreno sombrio com mais florestas
-    for(let dy=-5;dy<=5;dy++)for(let dx=-5;dx<=5;dx++){
-        let ny=8+dy,nx=MAP_W-9+dx;
+    // Vampiros (NE) - base em (MAP_W-21, 20)
+    for(let dy=-8;dy<=8;dy++)for(let dx=-8;dx<=8;dx++){
+        let ny=20+dy,nx=MAP_W-21+dx;
         if(ny>=0&&ny<MAP_H&&nx>=0&&nx<MAP_W){
-            map[ny][nx]=(Math.abs(dx)+Math.abs(dy)<4)?T.GRASS:T.FOREST;
+            map[ny][nx]=(Math.abs(dx)+Math.abs(dy)<5)?T.GRASS:T.FOREST;
         }
     }
 
@@ -1390,6 +1550,12 @@ class PlayerUnit extends Entity{
                 let d=dist(this.x,this.y,e.x,e.y);
                 if(d<md){md=d;this.targetEnemy=e}
             }
+            // Também alvejar generais inimigos
+            for(let g of gs.generals){
+                if(!g.alive||g.owner===OWNER.PLAYER)continue;
+                let d=dist(this.x,this.y,g.x,g.y);
+                if(d<md){md=d;this.targetEnemy=g}
+            }
         }
 
         if(this.moveTarget){
@@ -1462,10 +1628,264 @@ class PlayerUnit extends Entity{
     }
 }
 
+// ═══════════════════════════════════════════════════════════
+// CLASSE GENERAL - Comanda esquadrões de até 20 soldados
+// ═══════════════════════════════════════════════════════════
+class General extends Entity{
+    constructor(x,y,owner){
+        super(x,y);
+        let def=UDEF.GENERAL;
+        this.type='GENERAL';
+        this.owner=owner||OWNER.PLAYER;
+        this.hp=def.hp;this.maxHp=def.hp;
+        this.atk=def.atk;this.def=def.def;
+        this.speed=def.spd;this.range=def.range;
+        this.squad=[];         // unidades no esquadrão
+        this.maxSquad=GENERAL_MAX_SQUAD;
+        this.moral=100;        // 0-100
+        this.initialSquadSize=0;
+        this.aiState='idle';   // idle, attacking, defending, retreating
+        this.targetTerritory=null;
+        this.selected=false;
+        this.attackTimer=0;
+        this.recruitTimer=0;
+        this.name=this.owner===OWNER.PLAYER?'General':'General '+OWNER_NAMES[this.owner];
+    }
+    // Recrutar soldados próximos automaticamente
+    recruitNearby(){
+        if(this.squad.length>=this.maxSquad) return;
+        let entities=this.owner===OWNER.PLAYER?gs.units:gs.enemies;
+        for(let e of entities){
+            if(this.squad.length>=this.maxSquad) break;
+            if(!e.alive) continue;
+            if(e===this) continue;
+            if(e.type==='GENERAL'||e.type==='HUNTER') continue;
+            if(this.owner===OWNER.PLAYER && e.general) continue; // já tem general
+            if(this.owner!==OWNER.PLAYER && e.owner!==this.owner) continue;
+            let d=dist(this.x,this.y,e.x,e.y);
+            if(d<GENERAL_AURA_RANGE*TILE*2){
+                this.squad.push(e);
+                e.general=this;
+                if(this.squad.length===1) this.initialSquadSize=1;
+            }
+        }
+        if(this.initialSquadSize<this.squad.length) this.initialSquadSize=this.squad.length;
+    }
+    // Aplicar bônus de aura ao esquadrão
+    applyAura(){
+        for(let i=this.squad.length-1;i>=0;i--){
+            let s=this.squad[i];
+            if(!s.alive){
+                this.squad.splice(i,1);
+                continue;
+            }
+            let d=dist(this.x,this.y,s.x,s.y);
+            if(d<GENERAL_AURA_RANGE*TILE){
+                s._generalSpdBonus=GENERAL_SPD_BONUS;
+                s._generalAtkBonus=GENERAL_ATK_BONUS;
+                s._generalMoralBonus=GENERAL_MORAL_BONUS;
+            } else {
+                s._generalSpdBonus=0;
+                s._generalAtkBonus=0;
+                s._generalMoralBonus=0;
+            }
+        }
+    }
+    // Verificar se deve recuar
+    shouldRetreat(){
+        if(this.initialSquadSize<=0) return false;
+        return this.squad.length<this.initialSquadSize*GENERAL_RETREAT_THRESHOLD;
+    }
+    // Encontrar território inimigo mais próximo para atacar
+    findAttackTarget(){
+        let myTerr=getTerritoryByWorld(this.x,this.y);
+        if(!myTerr) return null;
+        let bestT=null,bestD=Infinity;
+        for(let t of gs.territories){
+            if(t.owner===this.owner||t.owner===OWNER.NEUTRAL) continue;
+            if(!isAtWar(this.owner,t.owner)) continue;
+            let cx=(t.x*TERR_TILE+TERR_TILE/2)*TILE;
+            let cy=(t.y*TERR_TILE+TERR_TILE/2)*TILE;
+            let d=dist(this.x,this.y,cx,cy);
+            if(d<bestD){bestD=d;bestT=t}
+        }
+        return bestT;
+    }
+    update(dt){
+        super.update(dt);
+        this.attackTimer-=dt;
+        this.recruitTimer-=dt;
+        // Recrutar a cada 3s
+        if(this.recruitTimer<=0){
+            this.recruitNearby();
+            this.recruitTimer=3;
+        }
+        // Limpar mortos e aplicar aura
+        this.applyAura();
+        // Atualizar moral baseado em comida e perdas
+        let moralTarget=100;
+        if(this.shouldRetreat()) moralTarget=30;
+        this.moral=lerp(this.moral,moralTarget,dt*0.5);
+        // IA do General
+        if(this.owner!==OWNER.PLAYER){
+            // IA: estados
+            if(this.aiState==='idle'){
+                if(this.squad.length>=8){
+                    let target=this.findAttackTarget();
+                    if(target){
+                        this.targetTerritory=target;
+                        this.aiState='attacking';
+                    }
+                } else {
+                    this.aiState='defending';
+                }
+            }
+            if(this.aiState==='attacking'){
+                if(this.shouldRetreat()){
+                    this.aiState='retreating';
+                    this.targetTerritory=null;
+                } else if(this.targetTerritory){
+                    let tx=(this.targetTerritory.x*TERR_TILE+TERR_TILE/2)*TILE;
+                    let ty=(this.targetTerritory.y*TERR_TILE+TERR_TILE/2)*TILE;
+                    this.moveToward(tx,ty,dt);
+                    // Chegou no território alvo
+                    if(dist(this.x,this.y,tx,ty)<TILE*4){
+                        this.aiState='idle';
+                        this.targetTerritory=null;
+                    }
+                }
+            }
+            if(this.aiState==='retreating'){
+                // Voltar para território próprio
+                let ownTerrs=getOwnerTerritories(this.owner);
+                if(ownTerrs.length>0){
+                    let home=ownTerrs[0];
+                    let hx=(home.x*TERR_TILE+TERR_TILE/2)*TILE;
+                    let hy=(home.y*TERR_TILE+TERR_TILE/2)*TILE;
+                    this.moveToward(hx,hy,dt);
+                    if(dist(this.x,this.y,hx,hy)<TILE*4){
+                        this.aiState='idle';
+                        this.initialSquadSize=this.squad.length;
+                    }
+                }
+            }
+            if(this.aiState==='defending'){
+                // Ficar perto do território próprio, recrutar mais
+                if(this.squad.length>=8) this.aiState='idle';
+            }
+        } else {
+            // Jogador: general segue comandos de movimentação (como PlayerUnit)
+            if(this.moveTarget){
+                this.moveToward(this.moveTarget.x,this.moveTarget.y,dt);
+                if(dist(this.x,this.y,this.moveTarget.x,this.moveTarget.y)<TILE){
+                    this.moveTarget=null;
+                }
+            }
+        }
+        // Auto-atacar inimigos próximos
+        if(this.attackTimer<=0){
+            let target=null,md=Infinity;
+            let enemies=this.owner===OWNER.PLAYER?gs.enemies:gs.units;
+            for(let e of enemies){
+                if(!e.alive) continue;
+                let d=dist(this.x,this.y,e.x,e.y);
+                if(d<this.range*TILE&&d<md){md=d;target=e}
+            }
+            // Também verificar generais inimigos
+            for(let g of gs.generals){
+                if(!g.alive||g.owner===this.owner) continue;
+                let d=dist(this.x,this.y,g.x,g.y);
+                if(d<this.range*TILE&&d<md){md=d;target=g}
+            }
+            if(target){
+                let dmg=Math.max(1,this.atk-Math.floor((target.def||0)*0.3));
+                target.takeDamage(dmg);
+                this.attackTimer=1.0;
+                this.animState='attack';
+            }
+        }
+        // Fazer esquadrão seguir em formação
+        this.updateSquadFormation(dt);
+    }
+    moveToward(tx,ty,dt){
+        let dx=tx-this.x,dy=ty-this.y;
+        let d=Math.sqrt(dx*dx+dy*dy);
+        if(d>4){
+            let s=this.speed*TILE*dt;
+            this.x+=dx/d*s;
+            this.y+=dy/d*s;
+            if(Math.abs(dx)>Math.abs(dy)) this.dir=dx>0?3:2;
+            else this.dir=dy>0?0:1;
+            this.animState='walk';
+        } else {
+            this.animState='idle';
+        }
+    }
+    updateSquadFormation(dt){
+        let cols=5;
+        for(let i=0;i<this.squad.length;i++){
+            let s=this.squad[i];
+            if(!s.alive) continue;
+            let row=Math.floor(i/cols);
+            let col=i%cols;
+            let fx=this.x+(col-2)*TILE*1.2;
+            let fy=this.y+(row+1.5)*TILE*1.2;
+            let dx=fx-s.x,dy=fy-s.y;
+            let d=Math.sqrt(dx*dx+dy*dy);
+            if(d>TILE*0.5){
+                let spd=(s.speed||1.5)*(1+(s._generalSpdBonus||0))*TILE*dt;
+                s.x+=dx/d*Math.min(spd,d);
+                s.y+=dy/d*Math.min(spd,d);
+                if(Math.abs(dx)>Math.abs(dy)) s.dir=dx>0?3:2;
+                else s.dir=dy>0?0:1;
+                s.animState='walk';
+                s._followingGeneral=true;
+            } else {
+                s._followingGeneral=false;
+            }
+        }
+    }
+    draw(){
+        let sx=this.x-gs.camera.x,sy=this.y-gs.camera.y;
+        // Aura de comando visual
+        ctx.save();
+        ctx.globalAlpha=0.15;
+        ctx.fillStyle=this.owner===OWNER.PLAYER?'#4488FF':(this.owner===OWNER.ENEMY_A?'#FF4444':'#AA44FF');
+        ctx.beginPath();
+        ctx.arc(sx,sy,GENERAL_AURA_RANGE*TILE,0,Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+        // Sprite do general (usa sprite do king, maior)
+        let sprites=SC.king;
+        if(sprites&&sprites.length>0){
+            let frame=this.animFrame%sprites.length;
+            let sz=TILE+12;
+            ctx.drawImage(sprites[frame],sx-sz/2,sy-sz/2,sz,sz);
+        } else {
+            ctx.fillStyle='#FFD700';
+            ctx.fillRect(sx-8,sy-8,16,16);
+        }
+        // Ícone de coroa
+        ctx.fillStyle='#FFD700';ctx.font='bold 10px monospace';ctx.textAlign='center';
+        ctx.fillText('👑',sx,sy-TILE/2-4);
+        // HP e barra de moral
+        drawHP(sx-TILE/2,sy-TILE/2-12,TILE,3,this.hp,this.maxHp);
+        // Contador de esquadrão
+        ctx.fillStyle='#FFF';ctx.font='bold 9px monospace';
+        ctx.fillText(this.squad.length+'/'+this.maxSquad,sx,sy+TILE/2+8);
+        // Seleção
+        if(this.selected){
+            ctx.strokeStyle='#0F0';ctx.lineWidth=2;
+            ctx.strokeRect(sx-TILE/2-3,sy-TILE/2-3,TILE+6,TILE+6);
+        }
+    }
+}
+
 class EnemyUnit extends Entity{
-    constructor(x,y,type){
+    constructor(x,y,type,owner){
         super(x,y);
         this.type=type;
+        this.owner=owner||OWNER.NEUTRAL;
         this.isVampire=!!VAMP_STATS[type];
         if(this.isVampire){
             let vs=VAMP_STATS[type];
@@ -1488,6 +1908,8 @@ class EnemyUnit extends Entity{
     findTarget(){
         this.target=null;
         let md=Infinity;
+        // Se inimigo pertence a um reino, alveja jogador + outros reinos
+        let isKingdomEnemy=this.owner===OWNER.ENEMY_A||this.owner===OWNER.ENEMY_B||this.owner===OWNER.VAMPIRES;
         // Alvejar unidades do jogador
         for(let u of gs.units){
             if(!u.alive)continue;
@@ -1499,9 +1921,24 @@ class EnemyUnit extends Entity{
             let d=dist(this.x,this.y,gs.king.x,gs.king.y);
             if(d<md){md=d;this.target=gs.king}
         }
-        // Se nenhuma unidade perto, ir pro castelo
+        // Alvejar inimigos de outros reinos
+        if(isKingdomEnemy){
+            for(let e of gs.enemies){
+                if(!e.alive||e===this||e.owner===this.owner)continue;
+                let d=dist(this.x,this.y,e.x,e.y);
+                if(d<md){md=d;this.target=e}
+            }
+        }
+        // Alvejar generais inimigos
+        for(let g of gs.generals){
+            if(!g.alive||g.owner===this.owner)continue;
+            if(!isKingdomEnemy&&g.owner!==OWNER.PLAYER) continue;
+            let d=dist(this.x,this.y,g.x,g.y);
+            if(d<md){md=d;this.target=g}
+        }
+        // Se nenhum alvo perto, ir pro castelo do jogador
         if(!this.target||md>TILE*15){
-            let castle=gs.buildings.find(b=>b.type==='CASTLE'&&b.hp>0);
+            let castle=gs.buildings.find(b=>b.type==='CASTLE'&&b.hp>0&&b.owner!==this.owner);
             if(castle){
                 let bx=castle.x*TILE+castle.def.w*TILE/2;
                 let by=castle.y*TILE+castle.def.h*TILE/2;
@@ -1888,27 +2325,31 @@ class Hunter extends Entity{
         // Try custom hunter sprite first, fallback to archer sheet
         if(this.flashTimer>0)ctx.globalAlpha=0.5+(Math.sin(gs.gameTime*40)*0.5);
         let drawn=false;
-        // Attempt custom spritesheet with correct frame size (256x256)
+        // Attempt custom spritesheet (1536x1024, 6 cols x 4 rows, 256x256 per frame)
+        // Row 0 = bow hunter. All rows face left, so flip horizontally for right direction.
         if(SC.cacador&&SC.cacador.complete&&SC.cacador.naturalWidth){
             let fcols=Math.max(1,Math.floor(SC.cacador.naturalWidth/HUNTER_FW));
             let frows=Math.max(1,Math.floor(SC.cacador.naturalHeight/HUNTER_FH));
             if(fcols>1||frows>1){
                 let f=this.animFrame%fcols;
-                let row=frows>1?(DIR_TO_ROW[this.dir]||0):0;
-                if(row>=frows) row=0;
-                ctx.drawImage(SC.cacador,f*HUNTER_FW,row*HUNTER_FH,HUNTER_FW,HUNTER_FH,sx-sz/2,sy-sz/2,sz,sz);
+                let row=0; // always use row 0 (bow hunter)
+                let flipH=(this.dir===3); // flip when facing right
+                if(flipH){
+                    ctx.save();ctx.translate(sx,sy-sz/2);ctx.scale(-1,1);
+                    ctx.drawImage(SC.cacador,f*HUNTER_FW,row*HUNTER_FH,HUNTER_FW,HUNTER_FH,-sz/2,0,sz,sz);
+                    ctx.restore();
+                } else {
+                    ctx.drawImage(SC.cacador,f*HUNTER_FW,row*HUNTER_FH,HUNTER_FW,HUNTER_FH,sx-sz/2,sy-sz/2,sz,sz);
+                }
                 drawn=true;
             } else {
-                // Single image - draw directly
                 ctx.drawImage(SC.cacador,sx-sz/2,sy-sz/2,sz,sz);
                 drawn=true;
             }
         }
         if(!drawn){
-            // Fallback: draw with archer sheet but add a green hood tint to distinguish
             let sheet=SC[UNIT_SHEET_MAP['HUNTER']];
             if(!drawCharSheet(sheet,this.animState,this.dir,this.animFrame,sx-sz/2,sy-sz/2,sz)){
-                // Final fallback: draw a simple hunter silhouette
                 ctx.fillStyle='#4a7c3f';ctx.fillRect(sx-sz/2+4,sy-sz/2+2,sz-8,sz-4);
                 ctx.fillStyle='#2a5c1f';ctx.fillRect(sx-sz/2+6,sy-sz/2,sz-12,8);
             }
@@ -1928,8 +2369,9 @@ class Hunter extends Entity{
 }
 
 class Building{
-    constructor(x,y,type){
-        this.x=x;this.y=y;this.type=type;this.def=BUILD[type]||VAMP_BUILD[type]||{w:1,h:1,hp:100,icon:'?',cost:{gold:0},popCap:0,workers:0};
+    constructor(x,y,type,owner){
+        this.x=x;this.y=y;this.type=type;this.owner=owner||OWNER.PLAYER;
+        this.def=BUILD[type]||VAMP_BUILD[type]||{w:1,h:1,hp:100,icon:'?',cost:{gold:0},popCap:0,workers:0};
         this.hp=this.def.hp;this.maxHp=this.def.hp;
         if(type==='WALL'){this.hp+=gs.upgrades.masonry*90;this.maxHp+=gs.upgrades.masonry*90}
         if(type==='TOWER'){this.hp+=gs.upgrades.masonry*70;this.maxHp+=gs.upgrades.masonry*70}
@@ -1937,19 +2379,31 @@ class Building{
     }
     update(dt){
         if(this.hp<=0)return;
-        // Torre e Torre Sombria atacam inimigos/player
+        // Torres atacam inimigos do seu dono
         if((this.type==='TOWER'||this.type==='DARK_TOWER')&&this.def.attack){
             this.attackTimer-=dt;
             if(this.attackTimer<=0){
                 let bx=this.x*TILE+TILE/2,by=this.y*TILE+TILE/2;
                 let range=this.def.range*TILE;
-                let targets=this.type==='DARK_TOWER'?[...gs.units,gs.king].filter(Boolean):gs.enemies;
+                let targets=[];
+                if(this.owner===OWNER.PLAYER){
+                    targets=gs.enemies;
+                } else if(this.owner===OWNER.VAMPIRES){
+                    targets=[...gs.units,gs.king].filter(Boolean);
+                } else {
+                    // AI kingdom tower: attack player units, enemies of other factions
+                    targets=[...gs.units,gs.king].filter(Boolean);
+                    for(let e of gs.enemies){
+                        if(e.alive&&e.owner&&e.owner!==this.owner) targets.push(e);
+                    }
+                }
                 for(let e of targets){
                     if(!e||!e.alive)continue;
                     let d=dist(bx,by,e.x,e.y);
                     if(d<=range){
                         e.takeDamage(this.def.attack);
-                        gs.projectiles.push({x:bx,y:by-8,tx:e.x,ty:e.y-8,timer:0.25,color:this.type==='DARK_TOWER'?'#CC00CC':'#FFA500'});
+                        let pColor=this.owner===OWNER.VAMPIRES?'#CC00CC':this.owner===OWNER.ENEMY_A?'#FF6644':this.owner===OWNER.ENEMY_B?'#AA66FF':'#FFA500';
+                        gs.projectiles.push({x:bx,y:by-8,tx:e.x,ty:e.y-8,timer:0.25,color:pColor});
                         this.attackTimer=1.5;break;
                     }
                 }
@@ -1995,24 +2449,25 @@ class Building{
         let s=bs.some(b=>wl(b)&&b.x===this.x&&b.y===this.y+1);
         let e=bs.some(b=>wl(b)&&b.x===this.x+1&&b.y===this.y);
         let w=bs.some(b=>wl(b)&&b.x===this.x-1&&b.y===this.y);
+        let wc=OWNER_WALL_COLOR[this.owner]||OWNER_WALL_COLOR[OWNER.PLAYER];
         // Core block
         let cx=sx+6,cy=sy+6,cw=20,ch=20;
         if(n){cy=sy;ch+=6} if(s){ch+=6}
         if(w){cx=sx;cw+=6} if(e){cw+=6}
-        ctx.fillStyle='#808080';ctx.fillRect(cx,cy,cw,ch);
-        ctx.fillStyle='#909090';ctx.fillRect(cx+2,cy+2,cw-4,ch-4);
+        ctx.fillStyle=wc.base;ctx.fillRect(cx,cy,cw,ch);
+        ctx.fillStyle=wc.light;ctx.fillRect(cx+2,cy+2,cw-4,ch-4);
         // Battlements on exposed edges
-        ctx.fillStyle='#606060';
+        ctx.fillStyle=wc.dark;
         if(!n){ctx.fillRect(sx+4,sy+2,6,5);ctx.fillRect(sx+14,sy+2,6,5);ctx.fillRect(sx+22,sy+2,6,5)}
         if(!s){ctx.fillRect(sx+4,sy+25,6,5);ctx.fillRect(sx+14,sy+25,6,5);ctx.fillRect(sx+22,sy+25,6,5)}
         if(!e){ctx.fillRect(sx+26,sy+4,5,6);ctx.fillRect(sx+26,sy+14,5,6);ctx.fillRect(sx+26,sy+22,5,6)}
         if(!w){ctx.fillRect(sx+1,sy+4,5,6);ctx.fillRect(sx+1,sy+14,5,6);ctx.fillRect(sx+1,sy+22,5,6)}
         // Brick detail
-        ctx.fillStyle='#A0A0A0';
+        ctx.fillStyle=wc.detail;
         ctx.fillRect(sx+10,sy+10,5,3);ctx.fillRect(sx+17,sy+17,5,3);
         ctx.fillRect(sx+17,sy+10,5,3);ctx.fillRect(sx+10,sy+19,5,3);
         // Top shadow
-        ctx.fillStyle='#6A6A6A';ctx.fillRect(cx,cy,cw,2);
+        ctx.fillStyle=wc.top;ctx.fillRect(cx,cy,cw,2);
     }
 }
 
@@ -2103,7 +2558,7 @@ function spend(c){
     gs.resources.wood-=(c.wood||0);
     gs.resources.stone-=(c.stone||0);
 }
-function hasBarracks(){return gs.buildings.some(b=>b.type==='BARRACKS'&&b.hp>0)}
+function hasBarracks(){return gs.buildings.some(b=>b.type==='BARRACKS'&&b.hp>0&&b.owner===OWNER.PLAYER)}
 
 function upgradeForge(){
     let lv=gs.upgrades.forge;
@@ -2124,6 +2579,7 @@ function upgradeMasonry(){
     spend(cost);
     gs.upgrades.masonry++;
     for(let b of gs.buildings){
+        if(b.owner!==OWNER.PLAYER)continue;
         if(b.type==='WALL'){b.maxHp+=90;b.hp+=90}
         if(b.type==='TOWER'){b.maxHp+=70;b.hp+=70}
     }
@@ -2138,12 +2594,17 @@ function recruitUnit(type){
     if(!canAfford(def.cost)){addMessage('[x] Recursos insuficientes!');return}
     let popNeeded=def.cost.pop||0;
     if(popNeeded>0&&getAvailablePop()<popNeeded){addMessage('[x] População insuficiente! Construa mais casas.');return}
-    let bar=gs.buildings.find(b=>b.type==='BARRACKS'&&b.hp>0);
+    let bar=gs.buildings.find(b=>b.type==='BARRACKS'&&b.hp>0&&b.owner===OWNER.PLAYER);
     if(!bar)return;
     spend(def.cost);
     let ux=bar.x*TILE+bar.def.w*TILE+TILE+rand(-10,10);
     let uy=bar.y*TILE+TILE+rand(-10,10);
-    if(type==='HUNTER'){
+    if(type==='GENERAL'){
+        let gen=new General(ux,uy,OWNER.PLAYER);
+        gs.generals.push(gen);
+        addMessage('[+] General recrutado! Soldados pr\u00f3ximos se unir\u00e3o ao esquadr\u00e3o.');
+        return;
+    } else if(type==='HUNTER'){
         gs.units.push(new Hunter(ux,uy));
     } else {
         gs.units.push(new PlayerUnit(ux,uy,type));
@@ -2162,41 +2623,467 @@ const VAMP_BUILD = {
 };
 
 // ═══════════════════════════════════════════════════════════
-// DIPLOMACIA
+// DIPLOMACIA AVANÇADA
 // ═══════════════════════════════════════════════════════════
 function diploKey(a,b){return Math.min(a,b)+'_'+Math.max(a,b)}
+
 function initDiplomacy(){
     gs.diplomacy={};
+    gs.relations={};
+    gs.tradeRoutes=[];
+    gs.diploEvents=[];
+    gs.nonAggressionPacts={};
     let all=[OWNER.PLAYER,OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
     for(let i=0;i<all.length;i++){
         for(let j=i+1;j<all.length;j++){
             let k=diploKey(all[i],all[j]);
-            // Vampires at war with everyone initially
-            if(all[i]===OWNER.VAMPIRES||all[j]===OWNER.VAMPIRES) gs.diplomacy[k]=DIPLO.WAR;
-            // Player at war with barbarians and mages initially
-            else if(all[i]===OWNER.PLAYER||all[j]===OWNER.PLAYER) gs.diplomacy[k]=DIPLO.WAR;
-            // AI kingdoms neutral to each other
-            else gs.diplomacy[k]=DIPLO.NEUTRAL;
+            if(all[i]===OWNER.VAMPIRES||all[j]===OWNER.VAMPIRES){
+                gs.diplomacy[k]=DIPLO.WAR; gs.relations[k]=-90;
+            } else if(all[i]===OWNER.PLAYER||all[j]===OWNER.PLAYER){
+                gs.diplomacy[k]=DIPLO.WAR; gs.relations[k]=-60;
+            } else {
+                gs.diplomacy[k]=DIPLO.NEUTRAL; gs.relations[k]=0;
+            }
         }
     }
 }
+
+// ─── Relação Numérica ───
+function getRelation(a,b){if(a===b)return 100;return gs.relations[diploKey(a,b)]||0}
+function changeRelation(a,b,delta){
+    if(a===b)return;
+    let k=diploKey(a,b);
+    gs.relations[k]=Math.max(-100,Math.min(100,(gs.relations[k]||0)+delta));
+    // Auto-atualizar estado diplomático com base na relação
+    autoUpdateDiploState(a,b);
+}
+
+function autoUpdateDiploState(a,b){
+    let rel=getRelation(a,b);
+    let cur=getDiplo(a,b);
+    let pactKey=diploKey(a,b);
+    // Respeitar pactos de não agressão
+    if(gs.nonAggressionPacts[pactKey]>0&&cur!==DIPLO.WAR) return;
+    // Transições automáticas baseadas em relação
+    if(rel<=-80&&cur!==DIPLO.WAR) declareWar(a,b);
+    else if(rel>=70&&cur!==DIPLO.ALLIANCE&&cur!==DIPLO.WAR) makeAlliance(a,b);
+    else if(rel>=30&&rel<70&&cur===DIPLO.WAR) makePeace(a,b);
+}
+
 function getDiplo(a,b){if(a===b)return DIPLO.ALLIANCE;return gs.diplomacy[diploKey(a,b)]||DIPLO.NEUTRAL}
 function setDiplo(a,b,state){gs.diplomacy[diploKey(a,b)]=state}
 function isAtWar(a,b){return getDiplo(a,b)===DIPLO.WAR}
+function isAllied(a,b){return getDiplo(a,b)===DIPLO.ALLIANCE}
+
 function declareWar(a,b){
+    let k=diploKey(a,b);
+    let wasPeace=getDiplo(a,b)!==DIPLO.WAR;
     setDiplo(a,b,DIPLO.WAR);
+    if(gs.relations[k]>-60) gs.relations[k]=-60;
+    // Quebrar pacto de não agressão = penalidade diplomática com todos
+    if(gs.nonAggressionPacts[k]>0){
+        gs.nonAggressionPacts[k]=0;
+        let all=[OWNER.PLAYER,OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
+        for(let o of all){
+            if(o===a||o===b)continue;
+            changeRelation(a,o,-15); // Penalidade por quebrar pacto
+        }
+        addMessage('[!!] '+OWNER_NAMES[a]+' quebrou o pacto de não agressão!');
+    }
+    // Quebrar aliança = relação cai mais e penalidade com todos
+    if(wasPeace){
+        let prevState=getDiplo(a,b);
+        if(prevState===DIPLO.ALLIANCE){
+            gs.relations[k]=-80;
+            let all=[OWNER.PLAYER,OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
+            for(let o of all){
+                if(o===a||o===b)continue;
+                changeRelation(a,o,-10); // Outros desconfiam de quem trai
+            }
+        }
+    }
+    // Remover rotas de comércio
+    gs.tradeRoutes=gs.tradeRoutes.filter(t=>!(t.a===a&&t.b===b)&&!(t.a===b&&t.b===a));
     let nameA=OWNER_NAMES[a]||'?',nameB=OWNER_NAMES[b]||'?';
     addMessage('[!] '+nameA+' declarou guerra ao '+nameB+'!');
 }
+
 function makeAlliance(a,b){
     setDiplo(a,b,DIPLO.ALLIANCE);
+    let k=diploKey(a,b);
+    if(gs.relations[k]<70) gs.relations[k]=70;
     let nameA=OWNER_NAMES[a]||'?',nameB=OWNER_NAMES[b]||'?';
     addMessage('[+] '+nameA+' fez aliança com '+nameB+'!');
+    // Aliados de um tendem a melhorar relação com o outro
+    let all=[OWNER.PLAYER,OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
+    for(let o of all){
+        if(o===a||o===b)continue;
+        if(isAllied(o,a)) changeRelation(o,b,10);
+        if(isAllied(o,b)) changeRelation(o,a,10);
+    }
 }
+
 function makePeace(a,b){
     setDiplo(a,b,DIPLO.PEACE);
+    let k=diploKey(a,b);
+    if(gs.relations[k]<0) gs.relations[k]=Math.min(30,gs.relations[k]+40);
     let nameA=OWNER_NAMES[a]||'?',nameB=OWNER_NAMES[b]||'?';
     addMessage('[~] '+nameA+' fez paz com '+nameB+'!');
+}
+
+function makeNonAggression(a,b,duration){
+    let k=diploKey(a,b);
+    gs.nonAggressionPacts[k]=duration||120; // duração em segundos
+    if(getDiplo(a,b)===DIPLO.WAR) setDiplo(a,b,DIPLO.PEACE);
+    changeRelation(a,b,15);
+    let nameA=OWNER_NAMES[a]||'?',nameB=OWNER_NAMES[b]||'?';
+    addMessage('[~] '+nameA+' e '+nameB+' assinaram pacto de não agressão!');
+}
+
+// ─── Sistema de Comércio ───
+function startTrade(a,b,resourceA,amountA,resourceB,amountB){
+    // Verificar se já existe rota entre a e b
+    let existing=gs.tradeRoutes.find(t=>(t.a===a&&t.b===b)||(t.a===b&&t.b===a));
+    if(existing) return false;
+    if(getDiplo(a,b)===DIPLO.WAR) return false;
+    gs.tradeRoutes.push({a,b,resA:resourceA,amtA:amountA,resB:resourceB,amtB:amountB,timer:0,interval:15});
+    changeRelation(a,b,5);
+    let nameA=OWNER_NAMES[a]||'?',nameB=OWNER_NAMES[b]||'?';
+    addMessage('[+] Rota comercial entre '+nameA+' e '+nameB+'!');
+    return true;
+}
+
+function cancelTrade(a,b){
+    gs.tradeRoutes=gs.tradeRoutes.filter(t=>!(t.a===a&&t.b===b)&&!(t.a===b&&t.b===a));
+    changeRelation(a,b,-5);
+}
+
+function updateTradeRoutes(dt){
+    for(let i=gs.tradeRoutes.length-1;i>=0;i--){
+        let t=gs.tradeRoutes[i];
+        // Cancelar se em guerra
+        if(isAtWar(t.a,t.b)){gs.tradeRoutes.splice(i,1);continue}
+        t.timer+=dt;
+        if(t.timer>=t.interval){
+            t.timer=0;
+            // Executar troca
+            let kA=t.a===OWNER.PLAYER?gs.resources:gs.kingdoms.find(k=>k.owner===t.a);
+            let kB=t.b===OWNER.PLAYER?gs.resources:gs.kingdoms.find(k=>k.owner===t.b);
+            if(kA&&kB){
+                let hasA=t.a===OWNER.PLAYER?(kA[t.resA]||0)>=(t.amtA):(kA[t.resA]||0)>=(t.amtA);
+                let hasB=t.b===OWNER.PLAYER?(kB[t.resB]||0)>=(t.amtB):(kB[t.resB]||0)>=(t.amtB);
+                if(hasA&&hasB){
+                    kA[t.resA]-=t.amtA; kB[t.resA]=(kB[t.resA]||0)+t.amtA;
+                    kB[t.resB]-=t.amtB; kA[t.resB]=(kA[t.resB]||0)+t.amtB;
+                    changeRelation(t.a,t.b,2); // Comércio melhora relação
+                } else {
+                    // Recurso insuficiente, cancelar rota
+                    gs.tradeRoutes.splice(i,1);
+                    changeRelation(t.a,t.b,-3);
+                }
+            }
+        }
+    }
+}
+
+// ─── Fatores que alteram relação dinamicamente ───
+function onKillInTerritory(killerOwner,victimOwner){
+    if(killerOwner===victimOwner)return;
+    changeRelation(killerOwner,victimOwner,-3); // Matar soldados piora relação
+    // Aliados do morto ficam bravos com o matador
+    let all=[OWNER.PLAYER,OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
+    for(let o of all){
+        if(o===killerOwner||o===victimOwner)continue;
+        if(isAllied(o,victimOwner)) changeRelation(o,killerOwner,-2);
+    }
+}
+
+function onTerritoryConquered(conquerorOwner,previousOwner){
+    if(conquerorOwner===previousOwner)return;
+    changeRelation(conquerorOwner,previousOwner,-8); // Conquistar território é muito hostil
+    let all=[OWNER.PLAYER,OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
+    for(let o of all){
+        if(o===conquerorOwner||o===previousOwner)continue;
+        if(isAllied(o,previousOwner)) changeRelation(o,conquerorOwner,-5);
+        // Inimigos em comum melhoram relação
+        if(isAtWar(o,previousOwner)) changeRelation(o,conquerorOwner,3);
+    }
+}
+
+function onSharedBattle(owner1,owner2){
+    // Lutaram juntos contra inimigo em comum
+    changeRelation(owner1,owner2,5);
+}
+
+// ─── Atualização de pactos e relação passiva ───
+function updateDiplomacy(dt){
+    gs.diploEventTimer+=dt;
+    gs.diploAITimer+=dt;
+    // Atualizar pactos de não agressão
+    for(let k in gs.nonAggressionPacts){
+        if(gs.nonAggressionPacts[k]>0){
+            gs.nonAggressionPacts[k]-=dt;
+            if(gs.nonAggressionPacts[k]<=0){
+                gs.nonAggressionPacts[k]=0;
+                let parts=k.split('_');
+                let a=parseInt(parts[0]),b=parseInt(parts[1]);
+                addMessage('[~] Pacto de não agressão entre '+OWNER_NAMES[a]+' e '+OWNER_NAMES[b]+' expirou.');
+            }
+        }
+    }
+    // Relação melhora lentamente durante paz
+    let all=[OWNER.PLAYER,OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
+    for(let i=0;i<all.length;i++){
+        for(let j=i+1;j<all.length;j++){
+            let st=getDiplo(all[i],all[j]);
+            if(st===DIPLO.PEACE||st===DIPLO.NONAGGRESSION){
+                changeRelation(all[i],all[j],0.01*dt); // Paz lenta melhora relação
+            }
+            if(st===DIPLO.ALLIANCE){
+                changeRelation(all[i],all[j],0.02*dt); // Aliança fortalece
+            }
+        }
+    }
+    // Comércio
+    updateTradeRoutes(dt);
+    // IA diplomática a cada 20s
+    if(gs.diploAITimer>=20){
+        gs.diploAITimer=0;
+        updateDiplomaticAI();
+    }
+    // Eventos diplomáticos a cada 45s
+    if(gs.diploEventTimer>=45){
+        gs.diploEventTimer=0;
+        generateDiploEvent();
+    }
+    // Limpar eventos expirados
+    gs.diploEvents=gs.diploEvents.filter(e=>e.timer>0);
+    for(let e of gs.diploEvents) e.timer-=dt;
+}
+
+// ─── IA Diplomática ───
+function getKingdomPower(owner){
+    let terrs=getOwnerTerritories(owner).length;
+    let soldiers=0;
+    if(owner===OWNER.PLAYER){
+        soldiers=gs.units.length;
+    } else {
+        let k=gs.kingdoms.find(k=>k.owner===owner);
+        soldiers=(k?k.soldiers:0)+gs.enemies.filter(e=>e.owner===owner).length;
+    }
+    let generals=gs.generals.filter(g=>g.alive&&g.owner===owner).length;
+    return terrs*10+soldiers*3+generals*20;
+}
+
+function updateDiplomaticAI(){
+    let all=[OWNER.PLAYER,OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
+    let powers={};
+    for(let o of all) powers[o]=getKingdomPower(o);
+    // Encontrar o reino mais forte (excluindo neutros)
+    let strongest=all.reduce((a,b)=>powers[a]>powers[b]?a:b);
+
+    for(let k of gs.kingdoms){
+        let myPower=powers[k.owner];
+        let myTerrs=getOwnerTerritories(k.owner).length;
+
+        for(let other of all){
+            if(other===k.owner)continue;
+            let otherPower=powers[other];
+            let rel=getRelation(k.owner,other);
+            let st=getDiplo(k.owner,other);
+
+            // ═══ BUSCAR ALIADOS SE FRACO ═══
+            if(myPower<otherPower*0.6&&st!==DIPLO.ALLIANCE&&rel>-30){
+                // Reino fraco busca aliança
+                if(Math.random()<0.3){
+                    changeRelation(k.owner,other,5);
+                    // Se relação já for boa, propor aliança
+                    if(rel>=40&&st!==DIPLO.ALLIANCE){
+                        if(other===OWNER.PLAYER){
+                            pushDiploEvent('propose_alliance',k.owner,other);
+                        } else {
+                            makeAlliance(k.owner,other);
+                        }
+                    }
+                }
+            }
+
+            // ═══ DECLARAR GUERRA SE FORTE ═══
+            if(myPower>otherPower*1.8&&st!==DIPLO.WAR&&rel<20){
+                if(Math.random()<0.15){
+                    changeRelation(k.owner,other,-10);
+                    if(rel<-40&&!gs.nonAggressionPacts[diploKey(k.owner,other)]){
+                        declareWar(k.owner,other);
+                    }
+                }
+            }
+
+            // ═══ TRAIR ALIADOS SE VANTAGEM ESTRATÉGICA ═══
+            if(st===DIPLO.ALLIANCE&&myPower>otherPower*2.5){
+                if(Math.random()<0.05){ // 5% chance por ciclo
+                    // Traição!
+                    gs.relations[diploKey(k.owner,other)]=-80;
+                    declareWar(k.owner,other);
+                    addMessage('[!!] '+k.name+' traiu a aliança com '+OWNER_NAMES[other]+'!');
+                    // Todos desconfiam do traidor
+                    for(let x of all){
+                        if(x===k.owner||x===other)continue;
+                        changeRelation(x,k.owner,-20);
+                    }
+                }
+            }
+
+            // ═══ FORMAR COALIZÃO CONTRA DOMINANTE ═══
+            if(other!==strongest&&strongest!==k.owner&&k.owner!==strongest){
+                let sPower=powers[strongest];
+                if(sPower>myPower*1.5&&sPower>otherPower*1.5){
+                    // Ambos são mais fracos que o dominante
+                    if(st!==DIPLO.ALLIANCE&&isAtWar(k.owner,strongest)&&isAtWar(other,strongest)){
+                        changeRelation(k.owner,other,3); // Inimigo em comum
+                    }
+                    if(Math.random()<0.1&&rel>=20&&st!==DIPLO.ALLIANCE){
+                        if(other===OWNER.PLAYER){
+                            pushDiploEvent('propose_alliance',k.owner,other);
+                        } else {
+                            makeAlliance(k.owner,other);
+                            addMessage('[+] '+k.name+' e '+OWNER_NAMES[other]+' se aliaram contra '+OWNER_NAMES[strongest]+'!');
+                        }
+                    }
+                }
+            }
+
+            // ═══ COMÉRCIO ═══
+            if((st===DIPLO.ALLIANCE||st===DIPLO.PEACE)&&rel>=20){
+                let hasRoute=gs.tradeRoutes.some(t=>(t.a===k.owner&&t.b===other)||(t.a===other&&t.b===k.owner));
+                if(!hasRoute&&Math.random()<0.1){
+                    // IA propõe comércio
+                    let myRes=k.food>k.gold?'food':'gold';
+                    let wantRes=k.food>k.gold?'gold':'food';
+                    let amt=Math.min(30,Math.floor((k[myRes]||0)*0.1));
+                    if(amt>=5){
+                        if(other===OWNER.PLAYER){
+                            pushDiploEvent('trade_offer',k.owner,other);
+                        } else {
+                            startTrade(k.owner,other,myRes,amt,wantRes,amt);
+                        }
+                    }
+                }
+            }
+
+            // ═══ PACTO DE NÃO AGRESSÃO ═══
+            if(st===DIPLO.WAR&&myPower<otherPower*0.8&&rel>-70){
+                if(Math.random()<0.08){
+                    if(other===OWNER.PLAYER){
+                        pushDiploEvent('request_peace',k.owner,other);
+                    } else {
+                        makePeace(k.owner,other);
+                        if(Math.random()<0.4){
+                            makeNonAggression(k.owner,other,90+rand(0,60));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─── Eventos Diplomáticos ───
+function pushDiploEvent(type,from,to){
+    // Evitar duplicatas
+    if(gs.diploEvents.some(e=>e.type===type&&e.from===from&&e.to===to)) return;
+    let event={type,from,to,timer:60,responded:false};
+    gs.diploEvents.push(event);
+    let name=OWNER_NAMES[from]||'?';
+    if(type==='propose_alliance') addMessage('[?] '+name+' propõe uma aliança!');
+    else if(type==='request_help') addMessage('[?] '+name+' pede ajuda militar!');
+    else if(type==='request_resources') addMessage('[?] '+name+' pede recursos!');
+    else if(type==='threaten_war') addMessage('[!] '+name+' ameaça declarar guerra!');
+    else if(type==='trade_offer') addMessage('[?] '+name+' oferece comércio!');
+    else if(type==='request_peace') addMessage('[?] '+name+' pede paz!');
+}
+
+function respondDiploEvent(event,accept){
+    event.responded=true;
+    event.timer=0;
+    let name=OWNER_NAMES[event.from]||'?';
+    if(accept){
+        if(event.type==='propose_alliance'){
+            makeAlliance(event.from,event.to);
+        } else if(event.type==='request_help'){
+            // Enviar soldados aliados
+            changeRelation(event.from,event.to,15);
+            addMessage('[+] Você enviou ajuda para '+name+'!');
+        } else if(event.type==='request_resources'){
+            let cost=30;
+            if(gs.resources.gold>=cost){
+                gs.resources.gold-=cost;
+                let k=gs.kingdoms.find(k=>k.owner===event.from);
+                if(k) k.gold=(k.gold||0)+cost;
+                changeRelation(event.from,event.to,12);
+                addMessage('[+] Recursos enviados para '+name+'!');
+            } else {
+                addMessage('[x] Ouro insuficiente!');
+            }
+        } else if(event.type==='threaten_war'){
+            // Ceder = dar 20 ouro, melhora relação
+            if(gs.resources.gold>=20){
+                gs.resources.gold-=20;
+                changeRelation(event.from,event.to,10);
+                addMessage('[~] Você cedeu recursos para evitar guerra com '+name);
+            }
+        } else if(event.type==='trade_offer'){
+            let k=gs.kingdoms.find(k=>k.owner===event.from);
+            let myRes=k&&k.food>k.gold?'food':'gold';
+            let wantRes=k&&k.food>k.gold?'gold':'food';
+            let amt=Math.min(30,Math.floor(((k?k[myRes]:0)||0)*0.1));
+            if(amt<5) amt=5;
+            startTrade(event.from,event.to,myRes,amt,wantRes,amt);
+        } else if(event.type==='request_peace'){
+            makePeace(event.from,event.to);
+            makeNonAggression(event.from,event.to,90);
+        }
+    } else {
+        // Recusar
+        if(event.type==='propose_alliance') changeRelation(event.from,event.to,-5);
+        else if(event.type==='request_help') changeRelation(event.from,event.to,-10);
+        else if(event.type==='request_resources') changeRelation(event.from,event.to,-8);
+        else if(event.type==='threaten_war'){
+            changeRelation(event.from,event.to,-15);
+            if(getRelation(event.from,event.to)<-60){
+                declareWar(event.from,event.to);
+            }
+        }
+        else if(event.type==='trade_offer') changeRelation(event.from,event.to,-3);
+        else if(event.type==='request_peace') changeRelation(event.from,event.to,-5);
+        addMessage('[x] Você recusou a proposta de '+name);
+    }
+}
+
+function generateDiploEvent(){
+    // IA gera eventos aleatórios direcionados ao jogador
+    let aiOwners=[OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
+    let from=aiOwners[randInt(0,aiOwners.length-1)];
+    let rel=getRelation(from,OWNER.PLAYER);
+    let st=getDiplo(from,OWNER.PLAYER);
+    let hasTerrs=getOwnerTerritories(from).length>0;
+    if(!hasTerrs) return;
+
+    if(st===DIPLO.WAR&&rel>-90&&Math.random()<0.3){
+        pushDiploEvent('request_peace',from,OWNER.PLAYER);
+    } else if(st!==DIPLO.WAR&&st!==DIPLO.ALLIANCE&&rel>=10&&Math.random()<0.25){
+        pushDiploEvent('propose_alliance',from,OWNER.PLAYER);
+    } else if(st!==DIPLO.WAR&&rel>=-20&&Math.random()<0.2){
+        pushDiploEvent('trade_offer',from,OWNER.PLAYER);
+    } else if(rel<-30&&rel>=-70&&st!==DIPLO.WAR&&Math.random()<0.2){
+        pushDiploEvent('threaten_war',from,OWNER.PLAYER);
+    } else if(st===DIPLO.ALLIANCE&&Math.random()<0.15){
+        let k=gs.kingdoms.find(k=>k.owner===from);
+        if(k&&(k.food<50||k.gold<50)){
+            pushDiploEvent('request_resources',from,OWNER.PLAYER);
+        } else {
+            pushDiploEvent('request_help',from,OWNER.PLAYER);
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2233,22 +3120,22 @@ function updateRandomEvents(dt){
     if(gs.isNight&&roll<0.35){
         let vampTerr=getOwnerTerritories(OWNER.VAMPIRES);
         let playerTerr=getOwnerTerritories(OWNER.PLAYER);
-        if(vampTerr.length>0&&playerTerr.length>0){
-            // Spawn vampire raid near player
+        if(vampTerr.length>0&&playerTerr.length>0&&isAtWar(OWNER.VAMPIRES,OWNER.PLAYER)){
             let target=playerTerr[randInt(0,playerTerr.length-1)];
             let cx=(target.x*TERR_TILE+TERR_TILE/2)*TILE;
             let cy=(target.y*TERR_TILE+TERR_TILE/2)*TILE;
             let types=['vamp_warrior','vamp_warrior','vamp_warrior','giant_bat','giant_bat'];
             if(gs.waveNumber>=3) types.push('vamp_lord');
             for(let i=0;i<types.length;i++){
-                gs.enemies.push(new EnemyUnit(cx+rand(-80,80),cy+rand(-80,80),types[i]));
+                gs.enemies.push(new EnemyUnit(cx+rand(-80,80),cy+rand(-80,80),types[i],OWNER.VAMPIRES));
             }
+            changeRelation(OWNER.VAMPIRES,OWNER.PLAYER,-5);
             addMessage('[!] Ataque noturno dos vampiros!');
             gs.screenShake=0.5;
         }
         return;
     }
-    // Invasão surpresa de um reino IA
+    // Invasão surpresa de um reino IA (só se em guerra)
     if(roll<0.5){
         let aiOwners=[OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
         let attacker=aiOwners[randInt(0,aiOwners.length-1)];
@@ -2261,18 +3148,38 @@ function updateRandomEvents(dt){
                 let from=atkTerr[randInt(0,atkTerr.length-1)];
                 let to=defTerr[randInt(0,defTerr.length-1)];
                 spawnArmy(attacker,{SWORDSMAN:randInt(4,8),ARCHER:randInt(3,6),SPEARMAN:randInt(3,6)},from,to);
-                let aN=OWNER_NAMES[attacker]||'?',dN=OWNER_NAMES[defender]||'?';
-                addMessage('[!] '+aN+' invadiu o '+dN+'!');
+                changeRelation(attacker,defender,-5);
+                addMessage('[!] '+OWNER_NAMES[attacker]+' invadiu '+OWNER_NAMES[defender]+'!');
             }
         }
         return;
     }
-    // Guerra espontânea entre reinos neutros
+    // Tensão diplomática: relação que piora pode levar a guerra
     if(roll<0.65){
         let pairs=[[OWNER.ENEMY_A,OWNER.ENEMY_B],[OWNER.ENEMY_A,OWNER.VAMPIRES],[OWNER.ENEMY_B,OWNER.VAMPIRES]];
         let pair=pairs[randInt(0,pairs.length-1)];
-        if(getDiplo(pair[0],pair[1])===DIPLO.NEUTRAL){
-            declareWar(pair[0],pair[1]);
+        let rel=getRelation(pair[0],pair[1]);
+        let st=getDiplo(pair[0],pair[1]);
+        if(st!==DIPLO.WAR&&rel<-40&&!gs.nonAggressionPacts[diploKey(pair[0],pair[1])]){
+            changeRelation(pair[0],pair[1],-15);
+        } else if(st===DIPLO.NEUTRAL&&rel<-20){
+            changeRelation(pair[0],pair[1],-8);
+        }
+    }
+    // Batalha compartilhada: aliados que lutam juntos se fortalecem
+    if(roll<0.8){
+        let all=[OWNER.PLAYER,OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
+        for(let i=0;i<all.length;i++){
+            for(let j=i+1;j<all.length;j++){
+                if(!isAllied(all[i],all[j]))continue;
+                // Se compartilham inimigo em guerra, relação melhora
+                for(let k=0;k<all.length;k++){
+                    if(k===i||k===j)continue;
+                    if(isAtWar(all[i],all[k])&&isAtWar(all[j],all[k])){
+                        onSharedBattle(all[i],all[j]);
+                    }
+                }
+            }
         }
     }
 }
@@ -2485,7 +3392,7 @@ function updateDynamicEvents(dt){
         if(pBuildings.length>0){
             let b=pBuildings[randInt(0,pBuildings.length-1)];
             for(let i=0;i<3;i++){
-                gs.enemies.push(new EnemyUnit(b.x*TILE+rand(-60,60),b.y*TILE+rand(-60,60),'bandit'));
+                gs.enemies.push(new EnemyUnit(b.x*TILE+rand(-60,60),b.y*TILE+rand(-60,60),'bandit',OWNER.NEUTRAL));
             }
         }
     }
@@ -2516,53 +3423,191 @@ function initVampireStructures(){
     }
 
     // Colocar construções vampiras
-    gs.buildings.push(new Building(avgX-1,avgY-1,'VAMP_CASTLE'));
-    gs.buildings.push(new Building(avgX-4,avgY-1,'VAMP_LAIR'));
-    gs.buildings.push(new Building(avgX+3,avgY,'CEMETERY'));
-    gs.buildings.push(new Building(avgX-3,avgY+3,'DARK_TOWER'));
-    gs.buildings.push(new Building(avgX+3,avgY+3,'DARK_TOWER'));
-    gs.buildings.push(new Building(avgX+3,avgY-3,'DARK_TOWER'));
+    gs.buildings.push(new Building(avgX-1,avgY-1,'VAMP_CASTLE',OWNER.VAMPIRES));
+    gs.buildings.push(new Building(avgX-4,avgY-1,'VAMP_LAIR',OWNER.VAMPIRES));
+    gs.buildings.push(new Building(avgX+3,avgY,'CEMETERY',OWNER.VAMPIRES));
+    gs.buildings.push(new Building(avgX-3,avgY+3,'DARK_TOWER',OWNER.VAMPIRES));
+    gs.buildings.push(new Building(avgX+3,avgY+3,'DARK_TOWER',OWNER.VAMPIRES));
+    gs.buildings.push(new Building(avgX+3,avgY-3,'DARK_TOWER',OWNER.VAMPIRES));
+    // Muralhas vampiras
+    for(let dx=-5;dx<=5;dx++){
+        gs.buildings.push(new Building(avgX+dx,avgY-5,'WALL',OWNER.VAMPIRES));
+        gs.buildings.push(new Building(avgX+dx,avgY+5,'WALL',OWNER.VAMPIRES));
+    }
+    for(let dy=-4;dy<=4;dy++){
+        gs.buildings.push(new Building(avgX-5,avgY+dy,'WALL',OWNER.VAMPIRES));
+        gs.buildings.push(new Building(avgX+5,avgY+dy,'WALL',OWNER.VAMPIRES));
+    }
 }
 
 function initTerritories(){
     gs.territories=[];
     for(let ty=0;ty<TERR_H;ty++){
         for(let tx=0;tx<TERR_W;tx++){
-            gs.territories.push({x:tx,y:ty,owner:OWNER.NEUTRAL,control:40,resource:1+((tx+ty)%2)});
+            // Determinar tipo de região pelo terreno dominante
+            let terrCounts={};
+            for(let dy=0;dy<TERR_TILE;dy++)for(let dx=0;dx<TERR_TILE;dx++){
+                let mx=tx*TERR_TILE+dx, my=ty*TERR_TILE+dy;
+                if(mx<MAP_W&&my<MAP_H){
+                    let t=gs.map[my][mx];
+                    terrCounts[t]=(terrCounts[t]||0)+1;
+                }
+            }
+            let regionType=REGION.PLAIN;
+            let totalTiles=TERR_TILE*TERR_TILE;
+            if((terrCounts[T.FOREST]||0)>totalTiles*0.4) regionType=REGION.FOREST;
+            else if((terrCounts[T.MOUNTAIN]||0)>totalTiles*0.3) regionType=REGION.MOUNTAIN;
+            else if((terrCounts[T.WATER]||0)>totalTiles*0.3) regionType=REGION.RIVER;
+            gs.territories.push({
+                x:tx,y:ty,owner:OWNER.NEUTRAL,control:40,
+                resource:1+((tx+ty)%2),regionType:regionType,
+                population:0,defenseLevel:0,
+                killCount:{[OWNER.PLAYER]:0,[OWNER.ENEMY_A]:0,[OWNER.ENEMY_B]:0,[OWNER.VAMPIRES]:0}
+            });
         }
     }
+    // Gerar vilas e cidades aleatoriamente
+    let villagePlaced=0,cityPlaced=0;
+    for(let i=0;i<gs.territories.length;i++){
+        let t=gs.territories[i];
+        if(t.regionType===REGION.PLAIN){
+            let rng=hash(t.x*31,t.y*47)%100;
+            if(rng<5&&cityPlaced<Math.floor(TERR_W*TERR_H*0.02)){
+                t.regionType=REGION.CITY; t.population=20; cityPlaced++;
+            } else if(rng<18&&villagePlaced<Math.floor(TERR_W*TERR_H*0.08)){
+                t.regionType=REGION.VILLAGE; t.population=8; villagePlaced++;
+            }
+        }
+    }
+    // Player: centro 4x4
     let pcx=Math.floor(TERR_W/2),pcy=Math.floor(TERR_H/2);
-    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+    for(let dy=-2;dy<=1;dy++)for(let dx=-2;dx<=1;dx++){
         let x=clamp(pcx+dx,0,TERR_W-1),y=clamp(pcy+dy,0,TERR_H-1);
         let t=gs.territories[terrIndex(x,y)];t.owner=OWNER.PLAYER;t.control=100;
     }
-    for(let dy=0;dy<=1;dy++)for(let dx=0;dx<=1;dx++){
-        gs.territories[terrIndex(dx,dy)].owner=OWNER.ENEMY_A;
-        gs.territories[terrIndex(dx,dy)].control=100;
+    // Bárbaros: NW 4x4
+    for(let dy=0;dy<=3;dy++)for(let dx=0;dx<=3;dx++){
+        let t=gs.territories[terrIndex(dx,dy)];
+        t.owner=OWNER.ENEMY_A;t.control=100;
     }
-    for(let dy=0;dy<=1;dy++)for(let dx=0;dx<=1;dx++){
+    // Magos: SE 4x4
+    for(let dy=0;dy<=3;dy++)for(let dx=0;dx<=3;dx++){
         let x=TERR_W-1-dx,y=TERR_H-1-dy;
-        gs.territories[terrIndex(x,y)].owner=OWNER.ENEMY_B;
-        gs.territories[terrIndex(x,y)].control=100;
+        let t=gs.territories[terrIndex(x,y)];
+        t.owner=OWNER.ENEMY_B;t.control=100;
     }
-    // Vampires: northeast corner 2x2
-    for(let dy=0;dy<=1;dy++)for(let dx=0;dx<=1;dx++){
+    // Vampiros: NE 4x4
+    for(let dy=0;dy<=3;dy++)for(let dx=0;dx<=3;dx++){
         let x=TERR_W-1-dx,y=dy;
-        gs.territories[terrIndex(x,y)].owner=OWNER.VAMPIRES;
-        gs.territories[terrIndex(x,y)].control=100;
+        let t=gs.territories[terrIndex(x,y)];
+        t.owner=OWNER.VAMPIRES;t.control=100;
+    }
+}
+
+function initKingdomStructures(){
+    // ─── Bárbaros (NW) - posição no mapa 500x500 ───
+    let bx=20,by=20;
+    gs.buildings.push(new Building(bx-1,by-1,'CASTLE',OWNER.ENEMY_A));
+    gs.buildings.push(new Building(bx-3,by+2,'BARRACKS',OWNER.ENEMY_A));
+    gs.buildings.push(new Building(bx+2,by+2,'FARM',OWNER.ENEMY_A));
+    gs.buildings.push(new Building(bx-3,by,'HOUSE',OWNER.ENEMY_A));
+    gs.buildings.push(new Building(bx+3,by,'HOUSE',OWNER.ENEMY_A));
+    gs.buildings.push(new Building(bx+2,by-3,'LUMBER',OWNER.ENEMY_A));
+    gs.buildings.push(new Building(bx-4,by-3,'FARM',OWNER.ENEMY_A));
+    gs.buildings.push(new Building(bx-2,by-3,'TOWER',OWNER.ENEMY_A));
+    gs.buildings.push(new Building(bx+4,by-3,'TOWER',OWNER.ENEMY_A));
+    gs.buildings.push(new Building(bx-4,by+4,'TOWER',OWNER.ENEMY_A));
+    gs.buildings.push(new Building(bx+4,by+4,'TOWER',OWNER.ENEMY_A));
+    for(let dx=-6;dx<=6;dx++){
+        gs.buildings.push(new Building(bx+dx,by-6,'WALL',OWNER.ENEMY_A));
+        gs.buildings.push(new Building(bx+dx,by+6,'WALL',OWNER.ENEMY_A));
+    }
+    for(let dy=-5;dy<=5;dy++){
+        gs.buildings.push(new Building(bx-6,by+dy,'WALL',OWNER.ENEMY_A));
+        gs.buildings.push(new Building(bx+6,by+dy,'WALL',OWNER.ENEMY_A));
+    }
+
+    // ─── Magos (SE) ───
+    let mx=MAP_W-21,my=MAP_H-21;
+    gs.buildings.push(new Building(mx-1,my-1,'CASTLE',OWNER.ENEMY_B));
+    gs.buildings.push(new Building(mx+2,my-3,'BARRACKS',OWNER.ENEMY_B));
+    gs.buildings.push(new Building(mx-3,my+2,'FARM',OWNER.ENEMY_B));
+    gs.buildings.push(new Building(mx-3,my,'HOUSE',OWNER.ENEMY_B));
+    gs.buildings.push(new Building(mx+3,my,'HOUSE',OWNER.ENEMY_B));
+    gs.buildings.push(new Building(mx+3,my+2,'LUMBER',OWNER.ENEMY_B));
+    gs.buildings.push(new Building(mx+3,my-3,'FARM',OWNER.ENEMY_B));
+    gs.buildings.push(new Building(mx-3,my-3,'TOWER',OWNER.ENEMY_B));
+    gs.buildings.push(new Building(mx+4,my+3,'TOWER',OWNER.ENEMY_B));
+    gs.buildings.push(new Building(mx-4,my+4,'TOWER',OWNER.ENEMY_B));
+    gs.buildings.push(new Building(mx+4,my-4,'TOWER',OWNER.ENEMY_B));
+    for(let dx=-6;dx<=6;dx++){
+        gs.buildings.push(new Building(mx+dx,my-6,'WALL',OWNER.ENEMY_B));
+        gs.buildings.push(new Building(mx+dx,my+6,'WALL',OWNER.ENEMY_B));
+    }
+    for(let dy=-5;dy<=5;dy++){
+        gs.buildings.push(new Building(mx-6,my+dy,'WALL',OWNER.ENEMY_B));
+        gs.buildings.push(new Building(mx+6,my+dy,'WALL',OWNER.ENEMY_B));
     }
 }
 
 function initKingdoms(){
     gs.kingdoms=[
-        {owner:OWNER.ENEMY_A,name:'Reino dos Bárbaros',gold:220,food:180,wood:170,expandCd:12,attackCd:30},
-        {owner:OWNER.ENEMY_B,name:'Reino dos Magos',gold:220,food:180,wood:170,expandCd:15,attackCd:36},
-        {owner:OWNER.VAMPIRES,name:'Reino dos Vampiros',gold:300,food:0,wood:100,expandCd:18,attackCd:25}
+        {owner:OWNER.ENEMY_A,name:'Reino dos Bárbaros',gold:300,food:250,wood:200,stone:50,expandCd:12,attackCd:30,soldierTimer:0,resourceTimer:0,soldiers:6},
+        {owner:OWNER.ENEMY_B,name:'Reino dos Magos',gold:350,food:200,wood:180,stone:60,expandCd:15,attackCd:36,soldierTimer:0,resourceTimer:0,soldiers:4},
+        {owner:OWNER.VAMPIRES,name:'Reino dos Vampiros',gold:300,food:0,wood:100,stone:30,expandCd:18,attackCd:25,soldierTimer:0,resourceTimer:0,soldiers:6}
     ];
 }
 
 function getOwnerTerritories(owner){
     return gs.territories.filter(t=>t.owner===owner);
+}
+
+// ═══════════════════════════════════════════════════════════
+// SISTEMA DE CONQUISTA POR MORTES
+// ═══════════════════════════════════════════════════════════
+function registerKillInTerritory(wx,wy,killerOwner){
+    let terr=getTerritoryByWorld(wx,wy);
+    if(!terr) return;
+    if(terr.owner===killerOwner) return;
+    if(!terr.killCount) terr.killCount={[OWNER.PLAYER]:0,[OWNER.ENEMY_A]:0,[OWNER.ENEMY_B]:0,[OWNER.VAMPIRES]:0};
+    terr.killCount[killerOwner]=(terr.killCount[killerOwner]||0)+1;
+    addParticle(wx,wy-20,'☠ '+terr.killCount[killerOwner]+'/'+KILLS_TO_CONQUER,'#FF4444');
+    // Atualizar relação diplomática
+    if(terr.owner!==OWNER.NEUTRAL) onKillInTerritory(killerOwner,terr.owner);
+    if(terr.killCount[killerOwner]>=KILLS_TO_CONQUER){
+        conquestByKills(terr,killerOwner);
+    }
+}
+function conquestByKills(territory,newOwner){
+    let prevOwner=territory.owner;
+    territory.owner=newOwner;
+    territory.control=100;
+    territory.killCount={[OWNER.PLAYER]:0,[OWNER.ENEMY_A]:0,[OWNER.ENEMY_B]:0,[OWNER.VAMPIRES]:0};
+    // Impacto diplomático da conquista
+    if(prevOwner!==OWNER.NEUTRAL) onTerritoryConquered(newOwner,prevOwner);
+    addMessage((newOwner===OWNER.PLAYER?'[+] ':'[!] ')+(OWNER_NAMES[newOwner]||'Desconhecido')+' conquistou território por combate!');
+    addExplosion(territory.x*TERR_TILE*TILE+TERR_TILE*TILE/2, territory.y*TERR_TILE*TILE+TERR_TILE*TILE/2);
+    // Transferir muralhas e construções do território
+    let tx0=territory.x*TERR_TILE,ty0=territory.y*TERR_TILE;
+    let tx1=tx0+TERR_TILE,ty1=ty0+TERR_TILE;
+    for(let b of gs.buildings){
+        if(b.hp>0&&b.x>=tx0&&b.x<tx1&&b.y>=ty0&&b.y<ty1){
+            if(b.type==='WALL'||b.type==='TOWER') b.owner=newOwner;
+        }
+    }
+    // Checar se o castelo principal do dono anterior está neste território
+    if(prevOwner!==OWNER.NEUTRAL){
+        let castleTypes=['CASTLE','VAMP_CASTLE'];
+        for(let b of gs.buildings){
+            if(b.hp>0&&b.x>=tx0&&b.x<tx1&&b.y>=ty0&&b.y<ty1&&castleTypes.includes(b.type)){
+                b.hp=0;
+                let remaining=getOwnerTerritories(prevOwner);
+                for(let t of remaining){t.owner=newOwner;t.control=80;}
+                addMessage('[!!] '+(OWNER_NAMES[prevOwner]||'Reino')+' foi completamente conquistado!');
+                break;
+            }
+        }
+    }
 }
 
 function spawnArmy(owner, comp, fromTerr, toTerr){
@@ -2660,10 +3705,49 @@ function updateTerritoryEconomy(dt){
     gs.territoryTimer+=dt;
     if(gs.territoryTimer<6) return;
     gs.territoryTimer=0;
-    let playerTerr=getOwnerTerritories(OWNER.PLAYER).length;
-    gs.resources.gold+=Math.floor(playerTerr*1.2);
-    gs.resources.food+=Math.floor(playerTerr*0.8);
-    gs.resources.wood+=Math.floor(playerTerr*0.7);
+    // Renda do jogador baseada em tipo de região
+    let playerTerrs=getOwnerTerritories(OWNER.PLAYER);
+    let econBonus=KINGDOM_TRAITS[OWNER.PLAYER].econBonus||1;
+    for(let t of playerTerrs){
+        let rd=REGION_DEF[t.regionType]||REGION_DEF[REGION.PLAIN];
+        gs.resources.gold+=Math.floor(rd.goldProd*econBonus);
+        gs.resources.food+=Math.floor(rd.foodProd*econBonus);
+        gs.resources.wood+=Math.floor(rd.woodProd*econBonus);
+        if(rd.popProd>0&&gs.population<getPopCap()) t.population=Math.min(30,t.population+1);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SISTEMA DE MORAL E DESERÇÃO
+// ═══════════════════════════════════════════════════════════
+function updateMoral(dt){
+    gs.moralTimer+=dt;
+    if(gs.moralTimer<5) return;
+    gs.moralTimer=0;
+    // Atualizar moral dos reinos IA
+    for(let k of gs.kingdoms){
+        if(!k.moral) k.moral=100;
+        // Fome reduz moral
+        if(k.food<=0) k.moral=Math.max(0,k.moral-8);
+        else if(k.food<50) k.moral=Math.max(20,k.moral-3);
+        else k.moral=Math.min(100,k.moral+2);
+        // Deserção: soldados fogem com moral baixa
+        if(k.moral<30&&k.soldiers>2){
+            let deserters=Math.ceil(k.soldiers*0.1);
+            k.soldiers=Math.max(1,k.soldiers-deserters);
+            if(k.owner===OWNER.ENEMY_A||k.owner===OWNER.ENEMY_B)
+                addMessage('[!] Soldados de '+k.name+' desertaram por fome!');
+        }
+        // Consumo de comida por soldados
+        let soldierConsumption=Math.ceil(k.soldiers*0.5);
+        k.food=Math.max(0,(k.food||0)-soldierConsumption);
+    }
+    // Moral dos generais IA
+    for(let g of gs.generals){
+        if(!g.alive||g.owner===OWNER.PLAYER) continue;
+        let kingdom=gs.kingdoms.find(k=>k.owner===g.owner);
+        if(kingdom) g.moral=kingdom.moral||50;
+    }
 }
 
 function updateKingdomAI(dt){
@@ -2673,15 +3757,84 @@ function updateKingdomAI(dt){
     gs.aiTimer=0;
     for(let k of gs.kingdoms){
         k.expandCd-=1.5;k.attackCd-=1.5;
+        if(!k.generalTimer) k.generalTimer=0;
+        k.generalTimer-=1.5;
         let isVamp=k.owner===OWNER.VAMPIRES;
         let traits=KINGDOM_TRAITS[k.owner]||{};
-        // Vampire kingdoms are more aggressive at night; Barbarians always aggressive
         let aggroMod=isVamp?(gs.isNight?0.6:1.4):1;
-        // Barbarian trait: faster spawn rate
         if(traits.spawnRate) aggroMod/=traits.spawnRate;
+        let owned=getOwnerTerritories(k.owner);
+        if(!k.moral) k.moral=100;
 
-        if(k.expandCd<=0){
-            let owned=getOwnerTerritories(k.owner);
+        // ═══ COLETA DE RECURSOS POR REGIÃO ═══
+        k.resourceTimer=(k.resourceTimer||0)+1.5;
+        if(k.resourceTimer>=5){
+            k.resourceTimer=0;
+            let econBonus=traits.econBonus||1;
+            for(let t of owned){
+                let rd=REGION_DEF[t.regionType]||REGION_DEF[REGION.PLAIN];
+                k.gold=(k.gold||0)+Math.floor(rd.goldProd*econBonus);
+                k.food=(k.food||0)+Math.floor(rd.foodProd*econBonus);
+                k.wood=(k.wood||0)+Math.floor(rd.woodProd*econBonus);
+                if(rd.popProd>0) t.population=Math.min(30,(t.population||0)+1);
+            }
+            // Renda extra por construções
+            for(let b of gs.buildings){
+                if(b.hp<=0||b.owner!==k.owner) continue;
+                if(b.type==='FARM') k.food+=10;
+                if(b.type==='LUMBER') k.wood+=8;
+                if(b.type==='HOUSE') k.gold+=5;
+            }
+        }
+
+        // ═══ PRODUÇÃO DE SOLDADOS (com consumo de comida) ═══
+        k.soldierTimer=(k.soldierTimer||0)+1.5;
+        let hasBarracks=gs.buildings.some(b=>b.type==='BARRACKS'&&b.hp>0&&b.owner===k.owner);
+        if(k.soldierTimer>=10&&hasBarracks){
+            k.soldierTimer=0;
+            let maxSoldiers=owned.length*6+12;
+            let fieldSoldiers=gs.enemies.filter(e=>e.owner===k.owner).length;
+            let generalSoldiers=gs.generals.filter(g=>g.alive&&g.owner===k.owner).reduce((s,g)=>s+g.squad.length,0);
+            let totalActive=(k.soldiers||0)+fieldSoldiers+generalSoldiers;
+            if(totalActive<maxSoldiers&&k.gold>=20&&k.food>=15&&k.moral>20){
+                let produce=Math.min(4,maxSoldiers-totalActive);
+                for(let p=0;p<produce;p++){
+                    if(k.gold>=20&&k.food>=15){
+                        k.gold-=20;k.food-=15;
+                        k.soldiers=(k.soldiers||0)+1;
+                    }
+                }
+            }
+        }
+
+        // ═══ CRIAÇÃO DE GENERAIS ═══
+        let myGenerals=gs.generals.filter(g=>g.alive&&g.owner===k.owner);
+        if(k.generalTimer<=0&&myGenerals.length<3&&k.gold>=200&&k.food>=50&&k.soldiers>=10){
+            k.gold-=200;k.food-=50;
+            // Spawnar general perto do castelo do reino
+            let castle=gs.buildings.find(b=>(b.type==='CASTLE'||b.type==='VAMP_CASTLE')&&b.hp>0&&b.owner===k.owner);
+            if(castle){
+                let gx=castle.x*TILE+TILE*2,gy=castle.y*TILE+TILE*2;
+                let gen=new General(gx,gy,k.owner);
+                gs.generals.push(gen);
+                // Atribuir soldados ao general
+                let toAssign=Math.min(k.soldiers,15);
+                k.soldiers-=toAssign;
+                // Spawnar soldados reais como EnemyUnits para o esquadrão
+                let types=['soldier','soldier','soldier','bandit','soldier'];
+                for(let s=0;s<toAssign;s++){
+                    let eu=new EnemyUnit(gx+rand(-60,60),gy+rand(-60,60),types[s%types.length],k.owner);
+                    gs.enemies.push(eu);
+                }
+            }
+            k.generalTimer=40+rand(0,20);
+        }
+
+        // ═══ DECISÃO ESTRATÉGICA: só ataca com vantagem ═══
+        let hasAdvantage=k.soldiers>=8&&k.food>=30&&k.moral>=50;
+
+        // ═══ EXPANSÃO ═══
+        if(k.expandCd<=0&&k.soldiers>=4&&k.moral>=40){
             if(owned.length>0){
                 let from=owned[randInt(0,owned.length-1)];
                 let candidates=[];
@@ -2698,24 +3851,17 @@ function updateKingdomAI(dt){
                 }
                 if(candidates.length>0){
                     let to=candidates[randInt(0,candidates.length-1)];
-                    // Barbarians: more soldiers, less defense; Mages: fewer but stronger; Vampires: unique mix
-                    let comp;
-                    if(traits.style==='agressivo'){
-                        comp={SWORDSMAN:randInt(6,12),ARCHER:randInt(1,3),SPEARMAN:randInt(3,6)};
-                    } else if(traits.style==='magico'){
-                        comp={SWORDSMAN:randInt(2,4),ARCHER:randInt(3,6),SPEARMAN:randInt(1,3)};
-                    } else if(isVamp){
-                        comp={SWORDSMAN:randInt(4,8),ARCHER:randInt(1,3),SPEARMAN:randInt(2,5)};
-                    } else {
-                        comp={SWORDSMAN:randInt(3,7),ARCHER:randInt(2,5),SPEARMAN:randInt(2,5)};
-                    }
+                    let soldiersToSend=Math.min(k.soldiers,randInt(4,8));
+                    let comp=makeArmyComp(traits,isVamp,soldiersToSend);
+                    k.soldiers-=soldiersToSend;
                     spawnArmy(k.owner,comp,from,to);
                 }
             }
             k.expandCd=(12+rand(0,10))*aggroMod;
         }
 
-        if(k.attackCd<=0){
+        // ═══ ATAQUE A INIMIGOS (só com vantagem estratégica) ═══
+        if(k.attackCd<=0&&hasAdvantage){
             let warTargets=[];
             let allOwners=[OWNER.PLAYER,OWNER.ENEMY_A,OWNER.ENEMY_B,OWNER.VAMPIRES];
             for(let o of allOwners){
@@ -2725,21 +3871,13 @@ function updateKingdomAI(dt){
                     if(tt.length>0) warTargets.push({owner:o,terrs:tt});
                 }
             }
-            let owned=getOwnerTerritories(k.owner);
             if(warTargets.length>0&&owned.length>0){
                 let target=warTargets[randInt(0,warTargets.length-1)];
                 let from=owned[randInt(0,owned.length-1)];
                 let to=target.terrs[randInt(0,target.terrs.length-1)];
-                let comp;
-                if(traits.style==='agressivo'){
-                    comp={SWORDSMAN:randInt(8,15),ARCHER:randInt(2,5),SPEARMAN:randInt(5,10)};
-                } else if(traits.style==='magico'){
-                    comp={SWORDSMAN:randInt(3,6),ARCHER:randInt(5,10),SPEARMAN:randInt(2,4)};
-                } else if(isVamp){
-                    comp={SWORDSMAN:randInt(6,12),ARCHER:randInt(2,5),SPEARMAN:randInt(4,8)};
-                } else {
-                    comp={SWORDSMAN:randInt(5,10),ARCHER:randInt(4,8),SPEARMAN:randInt(4,8)};
-                }
+                let soldiersToSend=Math.min(k.soldiers,randInt(8,15));
+                let comp=makeArmyComp(traits,isVamp,soldiersToSend);
+                k.soldiers-=soldiersToSend;
                 spawnArmy(k.owner,comp,from,to);
                 if(target.owner===OWNER.PLAYER)
                     addMessage('[!] '+k.name+' enviou um exército de invasão!');
@@ -2749,18 +3887,30 @@ function updateKingdomAI(dt){
     }
 }
 
+// Composição de exército baseada no estilo do reino
+function makeArmyComp(traits,isVamp,count){
+    if(traits.style==='agressivo')
+        return{SWORDSMAN:Math.ceil(count*0.5),ARCHER:Math.ceil(count*0.15),SPEARMAN:Math.ceil(count*0.35)};
+    if(traits.style==='magico')
+        return{SWORDSMAN:Math.ceil(count*0.25),ARCHER:Math.ceil(count*0.5),SPEARMAN:Math.ceil(count*0.25)};
+    if(isVamp)
+        return{SWORDSMAN:Math.ceil(count*0.45),ARCHER:Math.ceil(count*0.15),SPEARMAN:Math.ceil(count*0.4)};
+    return{SWORDSMAN:Math.ceil(count*0.35),ARCHER:Math.ceil(count*0.3),SPEARMAN:Math.ceil(count*0.35)};
+}
+
 function initRuins(){
     gs.ruins=[];
     let placed=0,tries=0;
+    let ruinsTarget=Math.floor(MAP_W*MAP_H/500); // ~500 ruínas para mapa 500x500
     let cx=Math.floor(MAP_W/2),cy=Math.floor(MAP_H/2);
-    while(placed<34&&tries<800){
+    while(placed<ruinsTarget&&tries<ruinsTarget*25){
         tries++;
         let tx=randInt(3,MAP_W-4),ty=randInt(3,MAP_H-4);
         let ter=gs.map[ty][tx];
         if(ter===T.WATER||ter===T.MOUNTAIN||ter===T.FOREST) continue;
-        if(dist(tx,ty,cx,cy)<15) continue;
-        if(gs.ruins.some(r=>dist(tx,ty,r.x,r.y)<4)) continue;
-        gs.ruins.push({x:tx,y:ty,variant:hash(tx,ty)%SC.ruins.length,size:(hash(ty,tx)%2===0)?2:1});
+        if(dist(tx,ty,cx,cy)<20) continue;
+        if(gs.ruins.some(r=>dist(tx,ty,r.x,r.y)<8)) continue;
+        gs.ruins.push({x:tx,y:ty,variant:hash(tx,ty)%(SC.ruins?SC.ruins.length:3),size:(hash(ty,tx)%2===0)?2:1});
         placed++;
     }
 }
@@ -2780,13 +3930,14 @@ function findNearestNode(nodes,tx,ty,maxDist){
 function initResourceNodes(){
     gs.treeNodes={};
     gs.stoneNodes={};
+    // Otimizado: usa hash para decidir, sem Math.random para reproducibilidade
     for(let y=0;y<MAP_H;y++)for(let x=0;x<MAP_W;x++){
         let ter=gs.map[y][x];
-        if(ter===T.FOREST&&Math.random()<0.55){
-            gs.treeNodes[nodeKey(x,y)]={x,y,hp:rand(3,6),variant:hash(x,y)%SC.pngTrees.length};
+        if(ter===T.FOREST&&(hash(x*17,y*31)%100)<55){
+            gs.treeNodes[nodeKey(x,y)]={x,y,hp:3+(hash(x,y)%4),variant:hash(x,y)%(SC.pngTrees?SC.pngTrees.length:4)};
         }
-        if(ter===T.MOUNTAIN&&Math.random()<0.45){
-            gs.stoneNodes[nodeKey(x,y)]={x,y,hp:rand(5,9),variant:hash(y,x)%SC.rockNodes.length,size:(hash(x*3,y*7)%2===0)?1:2};
+        if(ter===T.MOUNTAIN&&(hash(x*13,y*23)%100)<45){
+            gs.stoneNodes[nodeKey(x,y)]={x,y,hp:5+(hash(y,x)%5),variant:hash(y,x)%(SC.rockNodes?SC.rockNodes.length:3),size:(hash(x*3,y*7)%2===0)?1:2};
         }
     }
 }
@@ -2878,7 +4029,7 @@ function getProductionRates(){
     let wRatio=wNeeded>0?Math.min(1,Math.max(0,wAvail/wNeeded)):1;
     let rates={gold:0,food:0,wood:0,stone:0};
     for(let b of gs.buildings){
-        if(b.hp<=0||!b.def.produces)continue;
+        if(b.hp<=0||!b.def.produces||b.owner!==OWNER.PLAYER)continue;
         for(let res in b.def.produces){
             let base=b.def.produces[res]*mult*wRatio;
             // Apply tech bonuses
@@ -2910,7 +4061,7 @@ function saveGame(){
         let mapStr=gs.map.map(r=>r.join('')).join('\n');
         let data={
             resources:gs.resources,
-            buildings:gs.buildings.filter(b=>b.hp>0).map(b=>({x:b.x,y:b.y,type:b.type,hp:b.hp,maxHp:b.maxHp})),
+            buildings:gs.buildings.filter(b=>b.hp>0).map(b=>({x:b.x,y:b.y,type:b.type,hp:b.hp,maxHp:b.maxHp,owner:b.owner})),
             units:gs.units.filter(u=>u.alive).map(u=>({x:u.x,y:u.y,type:u.type,hp:u.hp})),
             king:{x:gs.king.x,y:gs.king.y,hp:gs.king.hp},
             waveNumber:gs.waveNumber,waveTimer:gs.waveTimer,gameTime:gs.gameTime,
@@ -2923,12 +4074,16 @@ function saveGame(){
             kingdoms:gs.kingdoms,
             armies:gs.armies,
             diplomacy:gs.diplomacy,
+            relations:gs.relations,
+            tradeRoutes:gs.tradeRoutes,
+            nonAggressionPacts:gs.nonAggressionPacts,
             dayNightTimer:gs.dayNightTimer,
             isNight:gs.isNight,
             eventTimer:gs.eventTimer,
             season:gs.season,
             seasonTimer:gs.seasonTimer,
-            techs:gs.techs
+            techs:gs.techs,
+            generals:gs.generals.filter(g=>g.alive).map(g=>({x:g.x,y:g.y,owner:g.owner,hp:g.hp,moral:g.moral,squadSize:g.squad.length}))
         };
         localStorage.setItem('medievalKingdom_save',JSON.stringify(data));
         addMessage('[+] Jogo salvo com sucesso!');
@@ -2942,7 +4097,7 @@ function loadGame(){
         gs.map=data.map.split('\n').map(r=>r.split('').map(Number));
         gs.resources={gold:data.resources.gold||0,food:data.resources.food||0,wood:data.resources.wood||0,stone:data.resources.stone||0};
         gs.upgrades=data.upgrades||{forge:0,masonry:0};
-        gs.buildings=data.buildings.map(b=>{let nb=new Building(b.x,b.y,b.type);nb.maxHp=b.maxHp||nb.maxHp;nb.hp=b.hp;return nb});
+        gs.buildings=data.buildings.map(b=>{let nb=new Building(b.x,b.y,b.type,b.owner||OWNER.PLAYER);nb.maxHp=b.maxHp||nb.maxHp;nb.hp=b.hp;return nb});
         gs.units=data.units.map(u=>{
             if(u.type==='HUNTER'){let h=new Hunter(u.x,u.y);h.hp=u.hp;return h}
             let nu=new PlayerUnit(u.x,u.y,u.type);nu.hp=u.hp;return nu
@@ -2957,6 +4112,10 @@ function loadGame(){
         gs.kingdoms=(data.kingdoms&&data.kingdoms.length)?data.kingdoms:gs.kingdoms;
         gs.armies=data.armies||[];
         gs.diplomacy=data.diplomacy||{};
+        gs.relations=data.relations||{};
+        gs.tradeRoutes=data.tradeRoutes||[];
+        gs.nonAggressionPacts=data.nonAggressionPacts||{};
+        gs.diploEvents=[];gs.diploEventTimer=0;gs.diploAITimer=0;
         gs.dayNightTimer=data.dayNightTimer||0;
         gs.isNight=data.isNight||false;
         gs.eventTimer=data.eventTimer||0;
@@ -2964,6 +4123,14 @@ function loadGame(){
         gs.seasonTimer=data.seasonTimer||0;
         gs.techs=data.techs||{};
         if(Object.keys(gs.diplomacy).length===0) initDiplomacy();
+        gs.generals=[];
+        if(data.generals&&data.generals.length){
+            for(let gd of data.generals){
+                let gen=new General(gd.x,gd.y,gd.owner);
+                gen.hp=gd.hp;gen.moral=gd.moral||100;
+                gs.generals.push(gen);
+            }
+        }
         gs.enemies=[];gs.particles=[];gs.projectiles=[];gs.explosions=[];gs.selectedUnits=[];
         gs.selectedBuilding=null;gs.selectedBuildings=[];gs.moveMode=false;gs.movingBuilding=null;gs.moveSelectionMode=false;
         gs.selectedArmies=[];gs.movingBuildings=[];
@@ -3403,6 +4570,8 @@ canvas.addEventListener('mouseup',(e)=>{
                 // Click simples
                 let md=TILE*1.5,near=null;
                 for(let u of gs.units){if(!u.alive)continue;let d=dist(mouse.wx,mouse.wy,u.x,u.y);if(d<md){md=d;near=u}}
+                // Verificar generais do jogador
+                for(let g of gs.generals){if(!g.alive||g.owner!==OWNER.PLAYER)continue;let d=dist(mouse.wx,mouse.wy,g.x,g.y);if(d<md){md=d;near=g}}
                 if(near){
                     near.selected=true;gs.selectedUnits=[near];
                     gs.selectedBuilding=null;gs.selectedBuildings=[];gs.showBuildingMenu=false;gs.selectedArmies=[];
@@ -3434,6 +4603,11 @@ canvas.addEventListener('mouseup',(e)=>{
                 for(let u of gs.units){
                     if(!u.alive)continue;
                     if(u.x>=x1&&u.x<=x2&&u.y>=y1&&u.y<=y2){u.selected=true;gs.selectedUnits.push(u)}
+                }
+                // Generais do jogador
+                for(let g of gs.generals){
+                    if(!g.alive||g.owner!==OWNER.PLAYER)continue;
+                    if(g.x>=x1&&g.x<=x2&&g.y>=y1&&g.y<=y2){g.selected=true;gs.selectedUnits.push(g)}
                 }
                 for(let a of gs.armies){
                     if(a.owner!==OWNER.PLAYER) continue;
@@ -3794,6 +4968,22 @@ function renderTerrain(){
             if(terr){
                 ctx.fillStyle=OWNER_COLOR[terr.owner]||OWNER_COLOR[OWNER.NEUTRAL];
                 ctx.fillRect(dx,dy,TILE,TILE);
+                // Bordas do território
+                if(terr.owner!==OWNER.NEUTRAL){
+                    let bc=OWNER_BORDER_COLOR[terr.owner];
+                    if(bc){
+                        ctx.strokeStyle=bc;ctx.lineWidth=2;
+                        // Checar vizinhos
+                        let tLeft=tx>0?getTerritoryByTile(tx-1,ty):null;
+                        let tRight=tx<MAP_W-1?getTerritoryByTile(tx+1,ty):null;
+                        let tUp=ty>0?getTerritoryByTile(tx,ty-1):null;
+                        let tDown=ty<MAP_H-1?getTerritoryByTile(tx,ty+1):null;
+                        if(!tLeft||tLeft.owner!==terr.owner){ctx.beginPath();ctx.moveTo(dx,dy);ctx.lineTo(dx,dy+TILE);ctx.stroke()}
+                        if(!tRight||tRight.owner!==terr.owner){ctx.beginPath();ctx.moveTo(dx+TILE,dy);ctx.lineTo(dx+TILE,dy+TILE);ctx.stroke()}
+                        if(!tUp||tUp.owner!==terr.owner){ctx.beginPath();ctx.moveTo(dx,dy);ctx.lineTo(dx+TILE,dy);ctx.stroke()}
+                        if(!tDown||tDown.owner!==terr.owner){ctx.beginPath();ctx.moveTo(dx,dy+TILE);ctx.lineTo(dx+TILE,dy+TILE);ctx.stroke()}
+                    }
+                }
             }
 
             // Detalhes de terreno
@@ -3846,6 +5036,33 @@ function renderTerrain(){
         }
     }
 
+    // ═══ INDICADORES VISUAIS DE REGIÃO ═══
+    let regionIcons=['','🌳','⛰️','🌊','🏘️','🏰'];
+    let regionLabels=['','Floresta','Montanha','Rio','Vila','Cidade'];
+    let tStartX=Math.max(0,Math.floor(stx/TERR_TILE)-1);
+    let tStartY=Math.max(0,Math.floor(sty/TERR_TILE)-1);
+    let tEndX=Math.min(TERR_W-1,Math.ceil((stx+cols)/TERR_TILE)+1);
+    let tEndY=Math.min(TERR_H-1,Math.ceil((sty+rows)/TERR_TILE)+1);
+    for(let tty=tStartY;tty<=tEndY;tty++){
+        for(let ttx=tStartX;ttx<=tEndX;ttx++){
+            let terr=gs.territories[terrIndex(ttx,tty)];
+            if(!terr||terr.regionType===REGION.PLAIN) continue;
+            let cx=(ttx*TERR_TILE+TERR_TILE/2)*TILE-gs.camera.x;
+            let cy=(tty*TERR_TILE+TERR_TILE/2)*TILE-gs.camera.y;
+            let icon=regionIcons[terr.regionType]||'';
+            if(icon){
+                ctx.font='14px sans-serif';ctx.textAlign='center';
+                ctx.fillText(icon,cx,cy+5);
+            }
+            // Mostrar pop em vilas/cidades
+            if(terr.regionType>=REGION.VILLAGE&&terr.population>0){
+                ctx.fillStyle='#FFF';ctx.font='bold 9px monospace';ctx.textAlign='center';
+                ctx.fillText('pop:'+terr.population,cx,cy+16);
+            }
+            ctx.textAlign='left';
+        }
+    }
+
     // Grid sutil no modo construção/mover
     if(gs.buildMode||gs.moveMode||gs.isDragging){
         ctx.strokeStyle='rgba(255,255,255,0.08)';ctx.lineWidth=1;
@@ -3868,6 +5085,7 @@ function renderEntities(){
     let all=[];
     for(let u of gs.units)if(u.alive)all.push(u);
     for(let e of gs.enemies)if(e.alive)all.push(e);
+    for(let g of gs.generals)if(g.alive)all.push(g);
     if(gs.king&&gs.king.alive) all.push(gs.king);
     // Include animals (living and briefly-dead for death anim)
     for(let a of gs.animals)if(a.alive||a.deathTimer>0)all.push(a);
@@ -4395,78 +5613,148 @@ function renderUI(){
         ctx.textAlign='left';
     }
 
-    // ─── Painel de Diplomacia ───
+    // ─── Painel de Diplomacia Avançada ───
     if(gs.showDiplomacy){
-        let dw=Math.min(620,W-80),dh=Math.min(480,H-120),dx2=(W-dw)/2,dy2=(H-dh)/2;
-        ctx.fillStyle='rgba(8,8,18,0.94)';ctx.fillRect(dx2,dy2,dw,dh);
+        let dw=Math.min(660,W-40),dh=Math.min(600,H-60),dx2=(W-dw)/2,dy2=(H-dh)/2;
+        ctx.fillStyle='rgba(8,8,18,0.96)';ctx.fillRect(dx2,dy2,dw,dh);
         ctx.strokeStyle='#CC4444';ctx.lineWidth=3;ctx.strokeRect(dx2,dy2,dw,dh);
-        ctx.fillStyle='#FFD700';ctx.font='bold 22px monospace';ctx.textAlign='left';
-        drawIC('diplomacy',dx2+18,dy2+14,22);ctx.fillText('Diplomacia dos Reinos',dx2+46,dy2+32);
-        ctx.font='11px monospace';ctx.fillStyle='#aaa';
-        ctx.fillText('[N] ou [ESC] para fechar',dx2+20,dy2+50);
+        // Header
+        ctx.fillStyle='rgba(60,20,20,0.5)';ctx.fillRect(dx2+1,dy2+1,dw-2,48);
+        ctx.fillStyle='#FFD700';ctx.font='bold 20px monospace';ctx.textAlign='left';
+        drawIC('diplomacy',dx2+18,dy2+12,22);ctx.fillText('Diplomacia dos Reinos',dx2+46,dy2+30);
+        ctx.font='10px monospace';ctx.fillStyle='#888';
+        ctx.fillText('[N] ou [ESC] para fechar',dx2+20,dy2+44);
 
         let kingdoms=[
             {owner:OWNER.ENEMY_A,name:'Reino dos Bárbaros',icon:'axe',color:'#F06262'},
             {owner:OWNER.ENEMY_B,name:'Reino dos Magos',icon:'crystal',color:'#BA68C8'},
             {owner:OWNER.VAMPIRES,name:'Reino dos Vampiros',icon:'vampire',color:'#CC0000'}
         ];
-        let ky=dy2+75;
+        let ky=dy2+56;
+        let innerW=dw-30;
+
+        // ═══ REINOS - Relação com Jogador ═══
         for(let ki=0;ki<kingdoms.length;ki++){
             let kd=kingdoms[ki];
             let state=getDiplo(OWNER.PLAYER,kd.owner);
+            let rel=Math.round(getRelation(OWNER.PLAYER,kd.owner));
             let terrs=getOwnerTerritories(kd.owner).length;
-            let stateStr=state===DIPLO.WAR?'GUERRA':state===DIPLO.ALLIANCE?'ALIANCA':state===DIPLO.PEACE?'PAZ':'NEUTRO';
-            let stateIC=state===DIPLO.WAR?'swords':state===DIPLO.ALLIANCE?'handshake':state===DIPLO.PEACE?'dove':'neutral';
-            let stateColor=state===DIPLO.WAR?'#F44':state===DIPLO.ALLIANCE?'#4F4':state===DIPLO.PEACE?'#8CF':'#AAA';
-            let rh=88;
+            let power=getKingdomPower(kd.owner);
+            let stateStr=state===DIPLO.WAR?'GUERRA':state===DIPLO.ALLIANCE?'ALIANÇA':state===DIPLO.PEACE?'PAZ':state===DIPLO.NONAGGRESSION?'PACTO':'NEUTRO';
+            let stateColor=state===DIPLO.WAR?'#F44':state===DIPLO.ALLIANCE?'#4F4':state===DIPLO.PEACE?'#8CF':state===DIPLO.NONAGGRESSION?'#FA0':'#AAA';
+            let relColor=rel>=50?'#4F4':rel>=0?'#8CF':rel>=-50?'#FA0':'#F44';
+            let rh=100;
 
-            // Background do reino
-            ctx.fillStyle='rgba(30,30,50,0.8)';ctx.fillRect(dx2+15,ky,dw-30,rh);
-            ctx.strokeStyle=kd.color;ctx.lineWidth=2;ctx.strokeRect(dx2+15,ky,dw-30,rh);
+            // Card background
+            ctx.fillStyle='rgba(25,25,45,0.85)';ctx.fillRect(dx2+15,ky,innerW,rh);
+            ctx.strokeStyle=kd.color+'88';ctx.lineWidth=2;ctx.strokeRect(dx2+15,ky,innerW,rh);
 
-            // Info do reino
-            ctx.fillStyle=kd.color;ctx.font='bold 16px monospace';
-            drawIC(kd.icon,dx2+26,ky+6,18);ctx.fillText(kd.name,dx2+50,ky+22);
-            ctx.fillStyle='#AAA';ctx.font='12px monospace';
-            ctx.fillText('Territórios: '+terrs+'  |  Estado: ',dx2+28,ky+42);
-            let tw=ctx.measureText('Territórios: '+terrs+'  |  Estado: ').width;
-            drawIC(stateIC,dx2+28+tw,ky+30,14);ctx.fillStyle=stateColor;ctx.fillText(stateStr,dx2+28+tw+18,ky+42);
+            // Nome + ícone
+            ctx.fillStyle=kd.color;ctx.font='bold 15px monospace';
+            drawIC(kd.icon,dx2+24,ky+5,16);ctx.fillText(kd.name,dx2+46,ky+19);
 
-            // Botões de ação
-            let btnW=110,btnH=26,btnY=ky+52;
-            // Botão 1: Declarar Guerra (se não em guerra)
+            // Estado + relação
+            ctx.fillStyle='#999';ctx.font='11px monospace';
+            ctx.fillText('Estado: ',dx2+28,ky+36);
+            let stW=ctx.measureText('Estado: ').width;
+            ctx.fillStyle=stateColor;ctx.fillText(stateStr,dx2+28+stW,ky+36);
+
+            // Barra de relação
+            let barX=dx2+200,barY=ky+8,barW=180,barH=12;
+            ctx.fillStyle='#222';ctx.fillRect(barX,barY,barW,barH);
+            let relNorm=(rel+100)/200; // 0..1
+            let fillW=Math.round(relNorm*barW);
+            let gradient=ctx.createLinearGradient(barX,0,barX+barW,0);
+            gradient.addColorStop(0,'#F44');gradient.addColorStop(0.35,'#FA0');gradient.addColorStop(0.5,'#AAA');gradient.addColorStop(0.65,'#8CF');gradient.addColorStop(1,'#4F4');
+            ctx.fillStyle=gradient;ctx.fillRect(barX,barY,barW,barH);
+            // Indicador
+            ctx.fillStyle='#FFF';ctx.fillRect(barX+fillW-2,barY-2,4,barH+4);
+            ctx.strokeStyle='#000';ctx.lineWidth=1;ctx.strokeRect(barX+fillW-2,barY-2,4,barH+4);
+            ctx.fillStyle=relColor;ctx.font='bold 10px monospace';ctx.textAlign='center';
+            ctx.fillText(rel>0?'+'+rel:rel,barX+barW/2,barY+barH+12);ctx.textAlign='left';
+
+            // Poder + territórios
+            ctx.fillStyle='#777';ctx.font='10px monospace';
+            ctx.fillText('Terrs: '+terrs+'  Poder: '+power,dx2+200,ky+36);
+
+            // Comércio ativo?
+            let hasRoute=gs.tradeRoutes.some(t=>(t.a===OWNER.PLAYER&&t.b===kd.owner)||(t.a===kd.owner&&t.b===OWNER.PLAYER));
+            if(hasRoute){
+                ctx.fillStyle='#4F4';ctx.font='10px monospace';
+                ctx.fillText('📦 Comércio ativo',dx2+200,ky+50);
+            }
+
+            // Pacto de não agressão
+            let pactKey=diploKey(OWNER.PLAYER,kd.owner);
+            if(gs.nonAggressionPacts[pactKey]>0){
+                let rem=Math.ceil(gs.nonAggressionPacts[pactKey]);
+                ctx.fillStyle='#FA0';ctx.font='10px monospace';
+                ctx.fillText('⚖ Pacto: '+rem+'s',dx2+340,ky+50);
+            }
+
+            // ═══ BOTÕES DE AÇÃO ═══
+            let btnW=88,btnH=22,btnY2=ky+60,bx=dx2+28;
+            let btnCount=0;
+
+            // Guerra (se não em guerra)
             if(state!==DIPLO.WAR){
-                let bx1=dx2+28;
-                ctx.fillStyle='rgba(200,50,50,0.7)';ctx.fillRect(bx1,btnY,btnW,btnH);
-                ctx.strokeStyle='#F44';ctx.lineWidth=1;ctx.strokeRect(bx1,btnY,btnW,btnH);
-                ctx.fillStyle='#FFF';ctx.font='11px monospace';drawIC('swords',bx1+6,btnY+3,16);ctx.fillText('Guerra',bx1+28,btnY+17);
-                uiButtons.push({x:bx1,y:btnY,w:btnW,h:btnH,fn:()=>{declareWar(OWNER.PLAYER,kd.owner)}});
+                ctx.fillStyle='rgba(180,40,40,0.7)';ctx.fillRect(bx,btnY2,btnW,btnH);
+                ctx.strokeStyle='#F44';ctx.lineWidth=1;ctx.strokeRect(bx,btnY2,btnW,btnH);
+                ctx.fillStyle='#FFF';ctx.font='10px monospace';ctx.fillText('⚔ Guerra',bx+8,btnY2+15);
+                uiButtons.push({x:bx,y:btnY2,w:btnW,h:btnH,fn:()=>{declareWar(OWNER.PLAYER,kd.owner)}});
+                bx+=btnW+6;btnCount++;
             }
-            // Botão 2: Fazer Aliança (se em guerra ou neutro)
-            if(state===DIPLO.WAR||state===DIPLO.NEUTRAL){
-                let bx2=dx2+28+(state!==DIPLO.WAR?0:1)*(btnW+10);
-                if(state!==DIPLO.WAR) bx2=dx2+28+btnW+10;
-                ctx.fillStyle='rgba(50,150,50,0.7)';ctx.fillRect(bx2,btnY,btnW,btnH);
-                ctx.strokeStyle='#4F4';ctx.lineWidth=1;ctx.strokeRect(bx2,btnY,btnW,btnH);
-                ctx.fillStyle='#FFF';ctx.font='11px monospace';drawIC('handshake',bx2+6,btnY+3,16);ctx.fillText('Alianca',bx2+28,btnY+17);
-                uiButtons.push({x:bx2,y:btnY,w:btnW,h:btnH,fn:()=>{makeAlliance(OWNER.PLAYER,kd.owner)}});
+            // Aliança (se paz/neutro e relação >= 30)
+            if((state===DIPLO.PEACE||state===DIPLO.NEUTRAL||state===DIPLO.NONAGGRESSION)&&rel>=30){
+                ctx.fillStyle='rgba(40,130,40,0.7)';ctx.fillRect(bx,btnY2,btnW,btnH);
+                ctx.strokeStyle='#4F4';ctx.lineWidth=1;ctx.strokeRect(bx,btnY2,btnW,btnH);
+                ctx.fillStyle='#FFF';ctx.font='10px monospace';ctx.fillText('🤝 Aliança',bx+8,btnY2+15);
+                uiButtons.push({x:bx,y:btnY2,w:btnW,h:btnH,fn:()=>{makeAlliance(OWNER.PLAYER,kd.owner)}});
+                bx+=btnW+6;btnCount++;
             }
-            // Botão 3: Fazer Paz (se em guerra)
+            // Paz (se em guerra)
             if(state===DIPLO.WAR){
-                let bx3=dx2+28+btnW+10;
-                ctx.fillStyle='rgba(80,130,200,0.7)';ctx.fillRect(bx3,btnY,btnW,btnH);
-                ctx.strokeStyle='#8CF';ctx.lineWidth=1;ctx.strokeRect(bx3,btnY,btnW,btnH);
-                ctx.fillStyle='#FFF';ctx.font='11px monospace';drawIC('dove',bx3+6,btnY+3,16);ctx.fillText('Paz',bx3+28,btnY+17);
-                uiButtons.push({x:bx3,y:btnY,w:btnW,h:btnH,fn:()=>{makePeace(OWNER.PLAYER,kd.owner)}});
+                ctx.fillStyle='rgba(60,100,180,0.7)';ctx.fillRect(bx,btnY2,btnW,btnH);
+                ctx.strokeStyle='#8CF';ctx.lineWidth=1;ctx.strokeRect(bx,btnY2,btnW,btnH);
+                ctx.fillStyle='#FFF';ctx.font='10px monospace';ctx.fillText('🕊 Paz',bx+8,btnY2+15);
+                uiButtons.push({x:bx,y:btnY2,w:btnW,h:btnH,fn:()=>{makePeace(OWNER.PLAYER,kd.owner)}});
+                bx+=btnW+6;btnCount++;
+            }
+            // Pacto (se paz/neutro e sem pacto ativo)
+            if((state===DIPLO.PEACE||state===DIPLO.NEUTRAL)&&!(gs.nonAggressionPacts[pactKey]>0)){
+                ctx.fillStyle='rgba(160,120,30,0.7)';ctx.fillRect(bx,btnY2,btnW,btnH);
+                ctx.strokeStyle='#FA0';ctx.lineWidth=1;ctx.strokeRect(bx,btnY2,btnW,btnH);
+                ctx.fillStyle='#FFF';ctx.font='10px monospace';ctx.fillText('⚖ Pacto',bx+8,btnY2+15);
+                uiButtons.push({x:bx,y:btnY2,w:btnW,h:btnH,fn:()=>{makeNonAggression(OWNER.PLAYER,kd.owner,120)}});
+                bx+=btnW+6;btnCount++;
+            }
+            // Comércio (se aliado/paz e sem rota)
+            if((state===DIPLO.ALLIANCE||state===DIPLO.PEACE)&&!hasRoute&&rel>=10){
+                ctx.fillStyle='rgba(40,120,80,0.7)';ctx.fillRect(bx,btnY2,btnW,btnH);
+                ctx.strokeStyle='#4A8';ctx.lineWidth=1;ctx.strokeRect(bx,btnY2,btnW,btnH);
+                ctx.fillStyle='#FFF';ctx.font='10px monospace';ctx.fillText('📦 Comércio',bx+8,btnY2+15);
+                uiButtons.push({x:bx,y:btnY2,w:btnW,h:btnH,fn:()=>{
+                    let myRes=gs.resources.food>gs.resources.gold?'food':'gold';
+                    let wantRes=gs.resources.food>gs.resources.gold?'gold':'food';
+                    startTrade(OWNER.PLAYER,kd.owner,myRes,20,wantRes,20);
+                }});
+                bx+=btnW+6;btnCount++;
+            }
+            // Cancelar comércio
+            if(hasRoute){
+                ctx.fillStyle='rgba(120,60,30,0.7)';ctx.fillRect(bx,btnY2,btnW,btnH);
+                ctx.strokeStyle='#A64';ctx.lineWidth=1;ctx.strokeRect(bx,btnY2,btnW,btnH);
+                ctx.fillStyle='#FFF';ctx.font='10px monospace';ctx.fillText('✖ Cancelar',bx+8,btnY2+15);
+                uiButtons.push({x:bx,y:btnY2,w:btnW,h:btnH,fn:()=>{cancelTrade(OWNER.PLAYER,kd.owner)}});
             }
 
-            ky+=rh+10;
+            ky+=rh+6;
         }
 
-        // Relações entre reinos IA
-        ctx.fillStyle='#d8b46a';ctx.font='bold 14px monospace';
-        ctx.fillText('Relações entre reinos IA:',dx2+20,ky+18);
-        ky+=30;
+        // ═══ RELAÇÕES ENTRE REINOS IA ═══
+        ctx.fillStyle='#d8b46a';ctx.font='bold 13px monospace';
+        ctx.fillText('Relações entre reinos IA:',dx2+20,ky+14);
+        ky+=24;
         let aiPairs=[
             [OWNER.ENEMY_A,OWNER.ENEMY_B,'Bárbaros','Magos'],
             [OWNER.ENEMY_A,OWNER.VAMPIRES,'Bárbaros','Vampiros'],
@@ -4474,15 +5762,88 @@ function renderUI(){
         ];
         for(let pair of aiPairs){
             let st=getDiplo(pair[0],pair[1]);
-            let stStr=st===DIPLO.WAR?'GUERRA':st===DIPLO.ALLIANCE?'ALIANCA':st===DIPLO.PEACE?'PAZ':'NEUTRO';
-            let stIC=st===DIPLO.WAR?'swords':st===DIPLO.ALLIANCE?'handshake':st===DIPLO.PEACE?'dove':'neutral';
-            let stCol=st===DIPLO.WAR?'#F44':st===DIPLO.ALLIANCE?'#4F4':st===DIPLO.PEACE?'#8CF':'#AAA';
-            ctx.fillStyle='#CCC';ctx.font='12px monospace';
-            ctx.fillText(pair[2]+' ↔ '+pair[3]+': ',dx2+28,ky);
-            let tw2=ctx.measureText(pair[2]+' ↔ '+pair[3]+': ').width;
-            drawIC(stIC,dx2+28+tw2,ky-12,14);ctx.fillStyle=stCol;ctx.fillText(stStr,dx2+28+tw2+18,ky);
-            ky+=22;
+            let rel2=Math.round(getRelation(pair[0],pair[1]));
+            let stStr=st===DIPLO.WAR?'GUERRA':st===DIPLO.ALLIANCE?'ALIANÇA':st===DIPLO.PEACE?'PAZ':st===DIPLO.NONAGGRESSION?'PACTO':'NEUTRO';
+            let stCol=st===DIPLO.WAR?'#F44':st===DIPLO.ALLIANCE?'#4F4':st===DIPLO.PEACE?'#8CF':st===DIPLO.NONAGGRESSION?'#FA0':'#AAA';
+            let relCol2=rel2>=50?'#4F4':rel2>=0?'#8CF':rel2>=-50?'#FA0':'#F44';
+
+            ctx.fillStyle='rgba(25,25,45,0.6)';ctx.fillRect(dx2+15,ky-14,innerW,22);
+            ctx.fillStyle='#CCC';ctx.font='11px monospace';
+            ctx.fillText(pair[2]+' ↔ '+pair[3],dx2+24,ky);
+            ctx.fillStyle=stCol;ctx.fillText(stStr,dx2+220,ky);
+            ctx.fillStyle=relCol2;ctx.fillText('('+rel2+')',dx2+300,ky);
+            // Mini barra
+            let mbx=dx2+350,mby=ky-9,mbw=100,mbh=8;
+            ctx.fillStyle='#222';ctx.fillRect(mbx,mby,mbw,mbh);
+            let relN2=(rel2+100)/200;
+            let grd=ctx.createLinearGradient(mbx,0,mbx+mbw,0);
+            grd.addColorStop(0,'#F44');grd.addColorStop(0.5,'#AAA');grd.addColorStop(1,'#4F4');
+            ctx.fillStyle=grd;ctx.fillRect(mbx,mby,mbw,mbh);
+            ctx.fillStyle='#FFF';ctx.fillRect(mbx+Math.round(relN2*mbw)-1,mby-1,3,mbh+2);
+            ky+=24;
         }
+
+        // ═══ EVENTOS DIPLOMÁTICOS PENDENTES ═══
+        let pendingEvents=gs.diploEvents.filter(e=>!e.responded&&e.to===OWNER.PLAYER&&e.timer>0);
+        if(pendingEvents.length>0){
+            ky+=6;
+            ctx.fillStyle='#FFD700';ctx.font='bold 13px monospace';
+            ctx.fillText('📜 Eventos Diplomáticos:',dx2+20,ky);
+            ky+=18;
+            for(let ev of pendingEvents){
+                let evName=OWNER_NAMES[ev.from]||'?';
+                let evDesc='';
+                if(ev.type==='propose_alliance') evDesc=evName+' propõe aliança';
+                else if(ev.type==='request_help') evDesc=evName+' pede ajuda militar';
+                else if(ev.type==='request_resources') evDesc=evName+' pede 30 ouro';
+                else if(ev.type==='threaten_war') evDesc=evName+' ameaça guerra';
+                else if(ev.type==='trade_offer') evDesc=evName+' oferece comércio';
+                else if(ev.type==='request_peace') evDesc=evName+' pede paz';
+
+                ctx.fillStyle='rgba(40,35,20,0.8)';ctx.fillRect(dx2+15,ky-12,innerW,30);
+                ctx.strokeStyle='#A86';ctx.lineWidth=1;ctx.strokeRect(dx2+15,ky-12,innerW,30);
+                ctx.fillStyle='#EDB';ctx.font='11px monospace';
+                ctx.fillText(evDesc+' ('+Math.ceil(ev.timer)+'s)',dx2+24,ky+2);
+
+                // Botões aceitar/recusar
+                let abx=dx2+innerW-130,aby=ky-9;
+                ctx.fillStyle='rgba(40,130,40,0.7)';ctx.fillRect(abx,aby,55,24);
+                ctx.strokeStyle='#4F4';ctx.lineWidth=1;ctx.strokeRect(abx,aby,55,24);
+                ctx.fillStyle='#FFF';ctx.font='10px monospace';ctx.fillText('✓ Sim',abx+8,aby+16);
+                let evRef=ev;
+                uiButtons.push({x:abx,y:aby,w:55,h:24,fn:()=>{respondDiploEvent(evRef,true)}});
+
+                let rbx=abx+60;
+                ctx.fillStyle='rgba(150,40,40,0.7)';ctx.fillRect(rbx,aby,55,24);
+                ctx.strokeStyle='#F44';ctx.lineWidth=1;ctx.strokeRect(rbx,aby,55,24);
+                ctx.fillStyle='#FFF';ctx.fillText('✖ Não',rbx+8,aby+16);
+                uiButtons.push({x:rbx,y:aby,w:55,h:24,fn:()=>{respondDiploEvent(evRef,false)}});
+
+                ky+=36;
+            }
+        }
+
+        // ═══ ROTAS COMERCIAIS ATIVAS ═══
+        let playerTrades=gs.tradeRoutes.filter(t=>t.a===OWNER.PLAYER||t.b===OWNER.PLAYER);
+        if(playerTrades.length>0){
+            ky+=6;
+            ctx.fillStyle='#4A8';ctx.font='bold 13px monospace';
+            ctx.fillText('📦 Comércio Ativo:',dx2+20,ky);
+            ky+=16;
+            for(let tr of playerTrades){
+                let other=tr.a===OWNER.PLAYER?tr.b:tr.a;
+                let oName=OWNER_NAMES[other]||'?';
+                ctx.fillStyle='#999';ctx.font='10px monospace';
+                ctx.fillText(oName+': '+tr.amtA+' '+tr.resA+' ↔ '+tr.amtB+' '+tr.resB,dx2+28,ky);
+                ky+=16;
+            }
+        }
+
+        // ═══ LEGENDA ═══
+        ky=dy2+dh-30;
+        ctx.fillStyle='#666';ctx.font='9px monospace';
+        ctx.fillText('Relação: -100 Guerra Total ←→ +100 Aliança Forte | Matar soldados/conquistar = piora | Comércio/paz = melhora',dx2+15,ky);
+
         ctx.textAlign='left';
     }
 
@@ -5006,8 +6367,14 @@ function gameLoop(timestamp){
         for(let i=gs.units.length-1;i>=0;i--){
             gs.units[i].update(dt);
             if(!gs.units[i].alive){
-                gs.units[i].selected=false;
-                gs.selectedUnits=gs.selectedUnits.filter(u=>u!==gs.units[i]);
+                let u=gs.units[i];
+                // Morte de unidade do jogador conta como kill para donos de inimigos no território
+                let tAtU=getTerritoryByWorld(u.x,u.y);
+                if(tAtU&&tAtU.owner!==OWNER.PLAYER){
+                    registerKillInTerritory(u.x,u.y,tAtU.owner);
+                }
+                u.selected=false;
+                gs.selectedUnits=gs.selectedUnits.filter(s=>s!==u);
                 gs.units.splice(i,1);
             }
         }
@@ -5017,9 +6384,30 @@ function gameLoop(timestamp){
             gs.enemies[i].update(dt);
             if(!gs.enemies[i].alive){
                 let e=gs.enemies[i];
-                gs.resources.gold+=e.loot.gold;
-                gs.resources.food+=e.loot.food;
-                addParticle(e.x,e.y-5,'+'+e.loot.gold+'g','#FFD700');
+                // Determinar quem matou: jogador ou outro reino
+                let killerOwner=OWNER.PLAYER;
+                // Se o inimigo pertencia a um reino, verificar quem estava mais perto
+                if(e.owner!==OWNER.NEUTRAL){
+                    // Checar unidades do jogador perto
+                    let nearestPlayerD=Infinity;
+                    for(let u of gs.units){if(u.alive){let d=dist(e.x,e.y,u.x,u.y);if(d<nearestPlayerD)nearestPlayerD=d}}
+                    if(gs.king&&gs.king.alive){let d=dist(e.x,e.y,gs.king.x,gs.king.y);if(d<nearestPlayerD)nearestPlayerD=d}
+                    // Checar inimigos de outros reinos perto
+                    let nearestOtherD=Infinity,nearestOtherOwner=OWNER.PLAYER;
+                    for(let o of gs.enemies){
+                        if(!o.alive||o===e||o.owner===e.owner)continue;
+                        let d=dist(e.x,e.y,o.x,o.y);
+                        if(d<nearestOtherD){nearestOtherD=d;nearestOtherOwner=o.owner}
+                    }
+                    killerOwner=nearestPlayerD<=nearestOtherD?OWNER.PLAYER:nearestOtherOwner;
+                }
+                registerKillInTerritory(e.x,e.y,killerOwner);
+                // Loot só para jogador
+                if(killerOwner===OWNER.PLAYER){
+                    gs.resources.gold+=e.loot.gold;
+                    gs.resources.food+=e.loot.food;
+                    addParticle(e.x,e.y-5,'+'+e.loot.gold+'g','#FFD700');
+                }
                 gs.enemies.splice(i,1);
             }
         }
@@ -5029,9 +6417,28 @@ function gameLoop(timestamp){
         updatePopulation(dt);
         updateHunger(dt);
         updateTerritoryEconomy(dt);
+        updateMoral(dt);
         updateKingdomAI(dt);
+        // Atualizar generais
+        for(let gi=gs.generals.length-1;gi>=0;gi--){
+            let g=gs.generals[gi];
+            if(g.alive) g.update(dt);
+            else{
+                // Registrar kill e dar loot
+                registerKillInTerritory(g.x,g.y,OWNER.PLAYER);
+                if(g.owner!==OWNER.PLAYER){
+                    gs.resources.gold+=50;
+                    addParticle(g.x,g.y-10,'+50g General!','#FFD700');
+                    addMessage('[+] Um General inimigo foi derrotado!');
+                }
+                // Liberar esquadrão
+                for(let s of g.squad){if(s.alive) s.general=null; s._followingGeneral=false;}
+                gs.generals.splice(gi,1);
+            }
+        }
         updateArmies(dt);
         updateDayNight(dt);
+        updateDiplomacy(dt);
         updateRandomEvents(dt);
         updateAnimals(dt);
         updateSeasons(dt);
@@ -5141,6 +6548,7 @@ function init(){
     initDiplomacy();
     initRuins();
     initVampireStructures();
+    initKingdomStructures();
     initAnimals();
 
     let cx=Math.floor(MAP_W/2)-1,cy=Math.floor(MAP_H/2)-1;
