@@ -217,6 +217,7 @@ const gs = {
     animalSpawnTimer: 0,
     animalRespawnQueue: [],
     saplings: [],
+    _saplingMap: {},
     regionResources: {},
     animalKillsPerRegion: {}
 };
@@ -2765,6 +2766,9 @@ function updateSaplings(dt){
             addParticle((s.x+0.5)*TILE,(s.y+0.3)*TILE,'🌱 Arvore cresceu','#4CAF50');
         }
     }
+    // Build sapling lookup map for rendering
+    gs._saplingMap={};
+    for(let s of gs.saplings) gs._saplingMap[nodeKey(s.x,s.y)]=s;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3573,7 +3577,7 @@ function renderTerrain(){
                 if(det===3){ctx.fillStyle='#e8d44d';ctx.fillRect(dx+10,dy+12,3,3)}
                 if(det===4){ctx.fillStyle='#C66';ctx.fillRect(dx+16,dy+8,3,3)} // flor
                 // Draw tree stumps/saplings
-                let sapling=gs.saplings.find(s=>s.x===tx&&s.y===ty);
+                let sapling=gs._saplingMap&&gs._saplingMap[nodeKey(tx,ty)];
                 if(sapling){
                     if(sapling.age<sapling.growTime*0.5){
                         ctx.fillStyle='#6B4226';
